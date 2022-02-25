@@ -1,0 +1,2 @@
+asyncio-mqtt==0.12.1
+paho-mqtt==1.6.1
