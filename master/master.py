@@ -7,9 +7,10 @@
 #-----------------------------------------------------------------------------------------------------------
 
 import os, sys, subprocess
+import ssl
 import asyncio
-from random import randrange
 
+from dotenv import load_dotenv
 from contextlib import AsyncExitStack, asynccontextmanager
 from asyncio_mqtt import Client, Will, MqttError
 #from algorithms import *
@@ -18,23 +19,22 @@ from asyncio_mqtt import Client, Will, MqttError
 # Functions
 #-----------------------------------------------------------------------------------------------------------
 
-async def post_to_topics(client, topics, msgs, retain=False):
+async def post_to_topic(client, topic, msg, retain=False):
     """
         coroutine to publish messages to topics to an mqtt broker connected to by client
 
         client is the mqtt client object
 
-        topics is an array of topics to be published to
+        topic is an string of topic to be published to
 
-        msgs is an array of messages to be published to the topic with the same index
+        msgs is the message to be published to the topic
 
         retain is a bool to determine if the message should be retained in the topic by the broker defaults to False
     """
     #loop through topics and messages
-    for topic, msg in zip(topics, msgs):
-        print(f'Publishing {msgs} to {topics}')
-        await client.publish(topics, msgs, qos=1, retain=retain)
-        await asyncio.sleep(2)
+    print(f'Publishing {msg} to {topic}')
+    await client.publish(topic, msg, qos=1, retain=retain)
+    await asyncio.sleep(2)
 
 async def process_messages(msgs, queue):
     """
@@ -72,12 +72,12 @@ async def n_agents_log(stack, tasks, client, msgs):
         
         if payload == 1:
             #add agent
-            await post_to_topics(client, ("agents/index"), (f'{agents_i}'))
+            await post_to_topic(client, "/agents/index", agents_i)
 
             queue = asyncio.Queue()
             queues.add(queue)
 
-            receive_topics = (f'agents/{agents_i}/obv', f'agents/{agents_i}/reward', f'agents/{agents_i}/done')
+            receive_topics = (f'/agents/{agents_i}/obv', f'/agents/{agents_i}/reward', f'/agents/{agents_i}/done')
             #start tasks to process messages received from agent n
             for topic in receive_topics:
                 manager = client.filtered_messages((topic))
@@ -86,7 +86,7 @@ async def n_agents_log(stack, tasks, client, msgs):
                 tasks.add(task)
 
             #subscribe to agent n's topics
-            await client.subscribe(f'agents/{agents_i}/#')
+            await client.subscribe(f'/agents/{agents_i}/#')
 
             task = asyncio.create_task(agent_run(client, agents_i, queue))
             tasks.add(task)
@@ -121,7 +121,7 @@ async def agent_run(client, n, queue):
         action = 3
 
         #send action to agent
-        await post_to_topics(client, (f'agents/{n}/action'), (f'{action}'))
+        await post_to_topic(client, f'/agents/{n}/action', action)
 
         #get observation, reward and done from agent
         for i in range(3):
@@ -130,9 +130,9 @@ async def agent_run(client, n, queue):
             payload = q_item.split(':')[1]
 
             #each may appear in queue in any order so must be processed into correct variable
-            if topic == f'agents/{n}/obv': next_obv = payload
-            elif topic == f'agents/{n}/reward': reward = payload
-            elif topic == f'agents/{n}/done': done = payload
+            if topic == f'/agents/{n}/obv': next_obv = payload
+            elif topic == f'/agents/{n}/reward': reward = payload
+            elif topic == f'/agents/{n}/done': done = payload
 
 #        qlearning.train(obv, action, reward, next_obv) 
         print(f'agent {n} next_obv = {next_obv}\nagent {n} reward = {reward}\nagent {n} done = {done}')
@@ -156,25 +156,31 @@ async def main():
     """
         main coroutine
     """
+    #MQTT credentials stored in .env file
+    load_dotenv()
+    MQTT_HOST = os.getenv("MQTT_HOST")
+    MQTT_USERNAME = os.getenv("MQTT_USERNAME")
+    MQTT_PASSWORD = os.getenv("MQTT_PASSWORD")
+
     async with AsyncExitStack() as stack:
         tasks = set()
         stack.push_async_callback(cancel_tasks, tasks)
 
-        client = Client("0.0.0.0", will=Will("master/status", "0", retain=True))
+        client = Client(MQTT_HOST, port=8883, username=MQTT_USERNAME, password=MQTT_PASSWORD, tls_context=ssl.create_default_context(), will=Will("/master/status", "0", retain=True))
         await stack.enter_async_context(client)
 
         #post to init topics
-        task = asyncio.create_task(post_to_topics(client, ("master/status"), ("1"), retain=True))
+        task = asyncio.create_task(post_to_topic(client, "/master/status", 1, retain=True))
         tasks.add(task)
     
         #start logger for adding/removing agents from system
-        n_agents_manager = client.filtered_messages(("agents/add"))
+        n_agents_manager = client.filtered_messages(("/agents/add"))
         n_agents_msgs = await stack.enter_async_context(n_agents_manager)
         task = asyncio.create_task(n_agents_log(stack, tasks, client, n_agents_msgs))
         tasks.add(task)
 
         #subscribe to topic for adding/removing agents from system
-        await client.subscribe("agents/add")
+        await client.subscribe("/agents/add")
 
         await asyncio.gather(*tasks)
 
