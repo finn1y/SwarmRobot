@@ -2,7 +2,6 @@
 #include <string.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "freertos/queue.h"
 #include "freertos/event_groups.h"
 #include "esp_system.h"
 #include "esp_log.h"
@@ -13,12 +12,17 @@
 #include "lwip/err.h"
 #include "lwip/sys.h"
 
-#include "wifi_credentials.h"
 #include "ultrasonic_sensor.h"
+#include "motor_driver.h"
 
 #define WIFI_TAG            "WiFi Log"
 #define MQTT_TAG            "MQTT Log"
-#define MAXIMUM_RETRY       10
+#define WIFI_SSID           CONFIG_WIFI_SSID 
+#define WIFI_PASSWORD       CONFIG_WIFI_PASSWORD
+#define WIFI_MAX_RETRY      CONFIG_WIFI_MAX_RETRY
+#define MQTT_URI            CONFIG_MQTT_URI
+#define MQTT_USERNAME       CONFIG_MQTT_USERNAME
+#define MQTT_PASSWORD       CONFIG_MQTT_PASSWORD
 #define WIFI_CONNECTED_BIT  BIT0
 #define WIFI_FAIL_BIT       BIT1
 
@@ -32,7 +36,6 @@ static int s_retry_num = 0;
 static esp_mqtt_client_handle_t client;
 
 const esp_mqtt_client_config_t mqtt_cfg = {
-    //defined in a credentials header file
     .uri = MQTT_URI,
     .username = MQTT_USERNAME,
     .password = MQTT_PASSWORD,
@@ -57,7 +60,7 @@ static const char master_status_topic[] = "/master/status";
 static const char add_topic[] = "/agents/add";
 
 gptimer_handle_t echo_tmr = NULL;
-uint64_t echo_count = 0;
+gptimer_handle_t motor_tmr = NULL;
 
 int str_to_int(char* str) {
     int val = 0;
@@ -83,7 +86,7 @@ static void event_handler(void* arg, esp_event_base_t event_base, int32_t event_
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
         esp_wifi_connect();
     } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
-        if (s_retry_num < MAXIMUM_RETRY) {
+        if (s_retry_num < WIFI_MAX_RETRY) {
             esp_wifi_connect();
             s_retry_num++;
             ESP_LOGI(WIFI_TAG, "retry to connect to the AP");
@@ -118,7 +121,6 @@ void wifi_init_sta(void) {
 
     wifi_config_t wifi_config = {
         .sta = {
-            //defined in a credentials header file
             .ssid = WIFI_SSID,
             .password = WIFI_PASSWORD,
 	        .threshold.authmode = WIFI_AUTH_WPA2_PSK,
@@ -240,10 +242,11 @@ void app_main() {
     esp_mqtt_client_publish(client, add_topic, "1", 0, 1, 0);
 
     init_ultrasonic_sensor(18, 5); //trigger pin, echo pin
+    init_motor_driver(12, 13, 21, 22); //motor1 pin1, pin2, motor2 pin1, pin2
+
+    move_forward(2000);
 
     while (1) {
-        float dist = get_distance(18);
-        printf("Distance = %.2f\r\n", dist);
         vTaskDelay(10000 / portTICK_PERIOD_MS);
     }
     
@@ -294,7 +297,7 @@ void app_main() {
         }
         
         float dist = get_distance(18);
-        printf("Distance = %.2fcm\r\n", dist);
+        printf("Distance = %.2fmm\r\n", dist);
 
         //get env vars
         char* obv = "[0, 0]";

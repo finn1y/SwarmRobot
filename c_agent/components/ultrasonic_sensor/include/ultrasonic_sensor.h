@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 #include "freertos/FreeRTOS.h"
-#include "freertos/queue.h"
+#include "freertos/task.h"
 #include "driver/gpio.h"
 #include "driver/gptimer.h"
 #include "esp_log.h"

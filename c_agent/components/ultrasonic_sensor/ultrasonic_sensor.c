@@ -42,7 +42,7 @@ void init_ultrasonic_sensor(int trig_pin, int echo_pin) {
         .resolution_hz = 1000000, //1MHz => 1us
     };
 
-    ESP_ERROR_CHECK(gptimer_new_timer(&echo_tmr_conf, &echo_tmr));
+    gptimer_new_timer(&echo_tmr_conf, &echo_tmr);
     gptimer_start(echo_tmr);
 
     gpio_install_isr_service(ESP_INTR_FLAG_LEVEL1);
@@ -72,7 +72,7 @@ float get_distance(int trig_pin) {
         dist = 2.00;
     }
 
-    ESP_LOGI(SENSOR_TAG, "Distance measured");
+    ESP_LOGI(SENSOR_TAG, "Distance of %.3fmm measured", dist);
 
     echo_end = 0;
     echo_start = 0;

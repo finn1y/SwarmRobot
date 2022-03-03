@@ -29,3 +29,6 @@ MANIFEST
 
 # Dotenv files
 *.env
+
+# ESP-IDP Generated files
+sdkconfig*

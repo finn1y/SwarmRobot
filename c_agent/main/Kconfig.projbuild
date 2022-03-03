@@ -1,0 +1,39 @@
+menu "Credentials config"
+
+    config WIFI_SSID
+        string "WiFi SSID"
+        default "myssid"
+        help
+            SSID (network name) for the example to connect to.
+
+    config WIFI_PASSWORD
+        string "WiFi Password"
+        default "mywifipassword"
+        help
+            WiFi password (WPA or WPA2).
+
+    config WIFI_MAX_RETRY
+        int "Max number of retries to connect to WiFi"
+        default 4
+        help
+            Max number of retries to connect to WiFi.
+
+    config MQTT_URI
+        string "MQTT URI"
+        default "mymqtturi"
+        help
+            URI of MQTT broker usually mqtt(s)://host:port.
+
+    config MQTT_USERNAME
+        string "MQTT Username"
+        default "mymqttusername"
+        help
+            Username used to connect to MQTT broker with.
+
+    config MQTT_PASSWORD
+        string "MQTT Password"
+        default "mymqttpassword"
+        help
+            Password used to connect to MQTT broker with.
+
+endmenu
