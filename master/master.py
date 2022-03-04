@@ -71,6 +71,8 @@ async def n_agents_log(stack, tasks, client, msgs):
         payload = int(msg.payload.decode())
         
         if payload == 1:
+            #post to topic preventing agent from starting until coroutine is initialised
+            await post_to_topic(client, f'/agents/{agents_i}/start', 0, retain=True)
             #add agent
             await post_to_topic(client, "/agents/index", agents_i)
 
@@ -109,7 +111,11 @@ async def agent_run(client, n, queue):
 
         queue is the Queue for messages received from agent n
     """
+    print(f'init agent {n}')
 #    qlearning = QLearning([[100], [4, 4]])
+
+    #agent n coroutine initialised agent can start 
+    await post_to_topic(client, f'/agents/{n}/start', 1, retain=True)
 
     #get init observation from agent
     obv = await queue.get()
@@ -119,7 +125,7 @@ async def agent_run(client, n, queue):
     while True:
 #        action = qlearning.get_action(obv)
         action = 3
-
+        
         #send action to agent
         await post_to_topic(client, f'/agents/{n}/action', action)
 

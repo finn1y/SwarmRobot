@@ -2,6 +2,7 @@
 #include <string.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "freertos/queue.h"
 #include "freertos/event_groups.h"
 #include "esp_system.h"
 #include "esp_log.h"
@@ -17,6 +18,7 @@
 
 #define WIFI_TAG            "WiFi Log"
 #define MQTT_TAG            "MQTT Log"
+#define AGENT_TAG           "Agent Log"
 #define WIFI_SSID           CONFIG_WIFI_SSID 
 #define WIFI_PASSWORD       CONFIG_WIFI_PASSWORD
 #define WIFI_MAX_RETRY      CONFIG_WIFI_MAX_RETRY
@@ -25,6 +27,7 @@
 #define MQTT_PASSWORD       CONFIG_MQTT_PASSWORD
 #define WIFI_CONNECTED_BIT  BIT0
 #define WIFI_FAIL_BIT       BIT1
+#define PI                  3.14
 
 extern const uint8_t mqtt_pem_start[] asm("_binary_mqtt_pem_start");
 extern const uint8_t mqtt_pem_end[] asm("_binary_mqtt_pem_end");
@@ -42,11 +45,13 @@ const esp_mqtt_client_config_t mqtt_cfg = {
     .cert_pem = (const char*)mqtt_pem_start
 };
 
-uint8_t action_flag = 0;
 uint8_t n_flag = 0;
+uint8_t start_flag = 0;
+uint8_t action_flag = 0;
 uint8_t status_flag = 0;
 uint8_t msg_flag = 0;
 
+char start_buffer[5];
 char action_buffer[5];
 char n_buffer[5];
 char status_buffer[5];
@@ -54,6 +59,7 @@ char msg_buffer[30];
 char topic_buffer[30];
 
 //topics
+char start_topic[25];
 char action_topic[25];
 static const char index_topic[] = "/agents/index";
 static const char master_status_topic[] = "/master/status";
@@ -187,16 +193,26 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
                 n_flag = 1;
                 printf("%.*s received from ", event->data_len, event->data); //debug
                 printf("topic %.*s\r\n", event->topic_len, event->topic); //debug
+
+            } else if (! strcmp(event->topic, start_topic)) {
+                slice_str(event->data, 0, event->data_len, start_buffer);
+                //start flag is set by master over MQTT once agent is initialised at master
+                start_flag = str_to_int(start_buffer);
+                printf("%.*s received from ", event->data_len, event->data); //debug
+                printf("topic %.*s\r\n", event->topic_len, event->topic); //debug
+
             } else if (! strcmp(event->topic, action_topic)) {
                 slice_str(event->data, 0, event->data_len, action_buffer);
                 action_flag = 1;
                 printf("%.*s received from ", event->data_len, event->data); //debug
                 printf("topic %.*s\r\n", event->topic_len, event->topic); //debug
+
             } else if (! strcmp(event->topic, master_status_topic)) {
                 slice_str(event->data, 0, event->data_len, status_buffer);
                 status_flag = 1;
                 printf("%.*s received from ", event->data_len, event->data); //debug
                 printf("topic %.*s\r\n", event->topic_len, event->topic); //debug
+
             } else {
                 slice_str(event->data, 0, event->data_len, msg_buffer);
                 slice_str(event->topic, 0, event->topic_len, topic_buffer);
@@ -219,8 +235,12 @@ static void mqtt_event_handler(void *handler_args, esp_event_base_t base, int32_
 
 void app_main() {
     //init variables
-    uint8_t n;
-    char str_buffer[25];
+    uint16_t n; //agent number (index)
+    float dist_front = 0; //distance to front obstacle
+    int reward = 0; 
+    bool done = false; //bool if reached goal state
+    char pub_topic_buffer[25];
+    char pub_data_buffer[10];
 
     //init NVS
     esp_err_t ret = nvs_flash_init();
@@ -229,6 +249,7 @@ void app_main() {
       ret = nvs_flash_init();
     }
 
+    //init WiFi
     ESP_ERROR_CHECK(ret);
     ESP_LOGI(WIFI_TAG, "ESP_WIFI_MODE_STA");
     wifi_init_sta();
@@ -238,88 +259,98 @@ void app_main() {
     esp_mqtt_client_register_event(client, ESP_EVENT_ANY_ID, mqtt_event_handler, NULL);
     esp_mqtt_client_start(client);
 
+    esp_mqtt_client_subscribe(client, master_status_topic, 1);
     esp_mqtt_client_subscribe(client, index_topic, 1);
     esp_mqtt_client_publish(client, add_topic, "1", 0, 1, 0);
 
+    //init components
     init_ultrasonic_sensor(18, 5); //trigger pin, echo pin
     init_motor_driver(12, 13, 21, 22); //motor1 pin1, pin2, motor2 pin1, pin2
 
-    move_forward(2000);
-
-    while (1) {
-        vTaskDelay(10000 / portTICK_PERIOD_MS);
-    }
-    
     //wait for init message to be received
-    printf("Waiting for index...\r\n"); 
+    ESP_LOGI(AGENT_TAG, "Waiting for index...");
     while (! n_flag) {
-        vTaskDelay(100 / portTICK_PERIOD_MS);
+        vTaskDelay(500 / portTICK_PERIOD_MS);
     } 
+    n_flag = 0;
     
     n = str_to_int(n_buffer);
-    n_flag = 0;
-    printf("This is agent %u\r\n", n);
+    ESP_LOGI(AGENT_TAG, "This is agent %u", n);
 
+    sprintf(start_topic, "/agents/%u/start", n);
     sprintf(action_topic, "/agents/%u/action", n);
-    printf("Subscribing to %.*s and /master/status topics\r\n", 25, action_topic);
+    esp_mqtt_client_subscribe(client, start_topic, 1);
     esp_mqtt_client_subscribe(client, action_topic, 1);
-    esp_mqtt_client_subscribe(client, master_status_topic, 1);
 
-    vTaskDelay(100 / portTICK_PERIOD_MS);
+    //wait for subscribe before sending messages
+    while (! start_flag) {
+        vTaskDelay(500 / portTICK_PERIOD_MS);
+    }
+    start_flag = 0;
+
+    //get initial distance
+    dist_front = get_distance(18);
+    //publish initial obv
+    sprintf(pub_data_buffer, "[%.4f]", dist_front);
+    sprintf(pub_topic_buffer, "/agents/%u/obv", n);
+    printf("PUB_TOPIC=%s, ", pub_topic_buffer);
+    printf("PUB_DATA=%s\r\n", pub_data_buffer);
+    esp_mqtt_client_publish(client, pub_topic_buffer, pub_data_buffer, 0, 1, 0);
 
     //main loop
     while (1) {
-        if (msg_flag) {
-            printf("%s received from topic: %s\r\n", msg_buffer, topic_buffer);
-            msg_flag = 0;
-        }
-
         if (action_flag) {
+            action_flag = 0;
+
             switch (str_to_int(action_buffer)) {
                 case 0:
                     //move forward
+                    move_forward(200);
+                    reward = -1;
                     break;
 
                 case 1:
-                    //turn 
+                    //turn right (pi/2 rads)
+                    turn_right(PI/2); 
+                    reward = -1;
                     break;
 
                 case 2:
-                    //turn
+                    //turn around (pi rads)
+                    turn_right(PI/2);
+                    reward = -1;
                     break;
 
                 case 3:
-                    //turn
+                    //turn left (pi/2 rads)
+                    turn_left(PI/2);
+                    reward = -1;
                     break;
             }
 
-            action_flag = 0;
+            //get from env
+            dist_front = get_distance(18);
+
+            //publish obv
+            sprintf(pub_data_buffer, "[%.4f]", dist_front);
+            sprintf(pub_topic_buffer, "/agents/%u/obv", n);
+            esp_mqtt_client_publish(client, pub_topic_buffer, pub_data_buffer, 0, 1, 0);
+
+            //publish reward
+            sprintf(pub_data_buffer, "%i", reward);
+            sprintf(pub_topic_buffer, "/agents/%u/reward", n);
+            esp_mqtt_client_publish(client, pub_topic_buffer, pub_data_buffer, 0, 1, 0);
+
+            //publish done
+            sprintf(pub_data_buffer, "%s", done ? "True" : "False");
+            sprintf(pub_topic_buffer, "/agents/%u/done", n);
+            esp_mqtt_client_publish(client, pub_topic_buffer, pub_data_buffer, 0, 1, 0);
+
+            //delay
+            vTaskDelay(500 / portTICK_PERIOD_MS);
+        } else {
+            vTaskDelay(500 / portTICK_PERIOD_MS);
         }
-        
-        float dist = get_distance(18);
-        printf("Distance = %.2fmm\r\n", dist);
-
-        //get env vars
-        char* obv = "[0, 0]";
-        char* reward = "-1";
-        char* done = "False";
-
-        //publish obv
-        sprintf(str_buffer, "/agents/%d/obv", n);
-        printf("Topic = %.*s\r\n", 30, str_buffer);
-        esp_mqtt_client_publish(client, str_buffer, obv, 0, 1, 0);
-
-        //publish reward
-        sprintf(str_buffer, "/agents/%d/reward", n);
-        printf("Topic = %.*s\r\n", 30, str_buffer);
-        esp_mqtt_client_publish(client, str_buffer, reward, 0, 1, 0);
-
-        //publish done
-        sprintf(str_buffer, "/agents/%d/done", n);
-        printf("Topic = %.*s\r\n", 30, str_buffer);
-        esp_mqtt_client_publish(client, str_buffer, done, 0, 1, 0);
-
-        vTaskDelay(10000 / portTICK_PERIOD_MS);
     }
 }
 
