@@ -37,3 +37,43 @@ menu "Credentials config"
             Password used to connect to MQTT broker with.
 
 endmenu
+
+menu "GPIO pin conf"
+
+    config ULTRASONIC_SENSOR_TRIG
+        int "GPIO pin ultrasonic sensor trigger pin is connected to"
+        default 18
+        help
+            GPIO pin ultrasonic sensor trigger pin is connected to
+
+    config ULTRASONIC_SENSOR_ECHO
+        int "GPIO pin ultrasonic sensor echo pin is connected to"
+        default 5
+        help
+            GPIO pin ultrasonic sensor echo pin is connected to
+
+    config MOTOR_DRIVER_IN1
+        int "GPIO pin motor driver in 1 pin is connected to"
+        default 12
+        help
+            GPIO pin motor driver in 1 pin is connected to
+
+    config MOTOR_DRIVER_IN2
+        int "GPIO pin motor driver in 2 pin is connected to"
+        default 13 
+        help
+            GPIO pin motor driver in 2 pin is connected to
+
+    config MOTOR_DRIVER_IN3
+        int "GPIO pin motor driver in 3 pin is connected to"
+        default 21
+        help
+            GPIO pin motor driver in 3 pin is connected to
+
+    config MOTOR_DRIVER_IN4
+        int "GPIO pin motor driver in 4 pin is connected to"
+        default 22
+        help
+            GPIO pin motor driver in 4 pin is connected to
+
+endmenu
