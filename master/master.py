@@ -172,7 +172,18 @@ async def agent_run(client, n, queue, status_flag):
     """
     logging.info("Agent %i initialised", n)
 
+#    if args.Algorithm == "qlearning":
 #        algorithm = QLearning([[100], [4, 4]])
+#    elif args.Algorithm == "dqn":
+#        algorithm = DQN([[100], args.hidden_size, [4, 4]], gamma=args.gamma, epsilon_max=args.epsilon_max, epsilon_min=args.epsilon_min, lr=args.learning_rate, lr_decay=args.learning_rate_decay, lr_decay_steps=args.time_steps, DRQN=False, saved_path=args.model_path)
+#    elif args.Algorithm == "drqn":
+#        algorithm = DQN([[100], args.hidden_size, [4, 4]], gamma=args.gamma, epsilon_max=args.epsilon_max, epsilon_min=args.epsilon_min, lr=args.learning_rate, lr_decay=args.learning_rate_decay, lr_decay_steps=args.time_steps, DRQN=True, saved_path=args.model_path)
+#    elif args.Algorithm == "policy_gradient":
+#        algorithm = PolicyGradient([[100], args.hidden_size, [4, 4]], gamma=args.gamma, lr=args.learning_rate, lr_decay=args.learning_rate_decay, lr_decay_steps=args.time_steps, saved_path=args.model_path)
+#    elif args.Algorithm == "ddrqn":
+#        algorithm = DDRQN([[100], args.hidden_size, [4, 4]], gamma=args.gamma, epsilon_max=args.epsilon_max, epsilon_min=args.epsilon_min, lr=args.learning_rate, lr_decay=args.learning_rate_decay, lr_decay_steps=args.time_steps, saved_path=args.model_path)
+#    elif args.Algorithm == "ma_actor_critic":
+#        algorithm = MAActorCritic([[100], args.hidden_size, [4, 4]], gamma=args.gamma, lr=args.learning_rate, lr_decay=args.learning_rate_decay, lr_decay_steps=args.time_steps, saved_path=args.model_path)
 
     #agent n coroutine initialised agent can start 
     await post_to_topic(client, f'/agents/{n}/start', 1, retain=True)
@@ -263,7 +274,7 @@ if __name__ == "__main__":
     logging.basicConfig(format="%(levelname)s: %(message)s", level=logging.INFO)
 
     #list of all possible algorithms
-    algorithms = ["qlearning", "dqn", "drqn", "policy_gradient", "actor_critic", "ddpg", "ddrqn", "ma_actor_critic"]
+    algorithms = ["qlearning", "dqn", "drqn", "policy_gradient", "actor_critic", "ddrqn", "ma_actor_critic"]
 
     global args 
     args = get_args(algorithms)

@@ -1,32 +1,38 @@
-#ifndef MOTOR_DRIVER_H
-#define MOTOR_DRIVER_H
+#ifndef WIFI_H
+#define WIFI_H
 
 //-----------------------------------------------------------------------------------------------------------
 // Includes
 //-----------------------------------------------------------------------------------------------------------
 
-#include <stdint.h>
 #include "freertos/FreeRTOS.h"
-#include "freertos/queue.h"
-#include "driver/gpio.h"
-#include "driver/gptimer.h"
+#include "freertos/task.h"
+#include "freertos/event_groups.h"
+#include "esp_system.h"
 #include "esp_log.h"
+#include "esp_event.h"
+#include "esp_wifi.h"
+#include "nvs_flash.h"
+#include "lwip/err.h"
+#include "lwip/sys.h"
 
 //-----------------------------------------------------------------------------------------------------------
 // Defines
 //-----------------------------------------------------------------------------------------------------------
 
-#define MOTOR_DRIVER_TAG    "Motor Driver Log"
-#define WHEEL_RADIUS        21 //42mm wheel diameter
-#define AXEL_LENGTH         90 //90mm wheel centre to wheel centre
+#define WIFI_TAG            "WiFi Log"
+
+#define WIFI_SSID           CONFIG_WIFI_SSID 
+#define WIFI_PASSWORD       CONFIG_WIFI_PASSWORD
+#define WIFI_MAX_RETRY      CONFIG_WIFI_MAX_RETRY
+
+#define WIFI_CONNECTED_BIT  BIT0
+#define WIFI_FAIL_BIT       BIT1
 
 //-----------------------------------------------------------------------------------------------------------
 // Function Declarations
 //-----------------------------------------------------------------------------------------------------------
 
-void init_motor_driver();
-void move_forward(float dist);
-void turn_left(float angle);
-void turn_right(float angle);
+void init_wifi_sta();
 
-#endif /* MOTOR_DRIVER_H */
+#endif /* WIFI_H */
