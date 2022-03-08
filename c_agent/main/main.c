@@ -138,6 +138,9 @@ void app_main() {
 
     ESP_LOGI(AGENT_TAG, "Agent index: %u", n);
 
+    //unsubscribe from index topic once this agent has an index
+    esp_mqtt_client_unsubscribe(client, index_topic, 1);
+
     sprintf(start_topic, "/agents/%u/start", n);
     sprintf(action_topic, "/agents/%u/action", n);
 

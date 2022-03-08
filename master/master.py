@@ -15,7 +15,7 @@ import logging
 from dotenv import load_dotenv
 from contextlib import AsyncExitStack, asynccontextmanager
 from asyncio_mqtt import Client, Will, MqttError
-#from algorithms import *
+from agent import AgentInterface
 
 #-----------------------------------------------------------------------------------------------------------
 # Functions
@@ -47,7 +47,6 @@ def get_args(algoritms):
 
     return parser.parse_args()
 
-
 async def post_to_topic(client, topic, msg, retain=False):
     """
         coroutine to publish messages to topics to an mqtt broker connected to by client
@@ -65,40 +64,6 @@ async def post_to_topic(client, topic, msg, retain=False):
     await client.publish(topic, msg, qos=1, retain=retain)
     await asyncio.sleep(2)
 
-async def process_messages(msgs, queue):
-    """
-        coroutine to process incoming messages and put them in a queue
-
-        msgs is an async constructor of messages
-
-        queue is the queue to put the messages in
-    """
-    async for msg in msgs:
-        topic = msg.topic
-        payload = msg.payload.decode()
-        logging.info("%s received from topic %s", payload, topic)
-        q_item = f'{topic}:{payload}'
-        await queue.put(q_item)
-
-async def process_status(msgs, status_flag):
-    """
-        coroutine to process incoming status messages and set appropriate flag
-
-        msgs is an async constructor of messages
-
-        n the index for the agent
-
-        statu_flag is a flag for agent n's status
-    """
-    async for msg in msgs:
-        status = msg.payload.decode()
-        await asyncio.sleep(3)
-
-        if status:
-            status_flag.set()
-        elif not status:
-            status_flag.clear()
-
 async def n_agents_manager(stack, tasks, client, msgs):
     """
         coroutine to manage the number of agents connected to the client
@@ -113,8 +78,7 @@ async def n_agents_manager(stack, tasks, client, msgs):
     """
     #init agent index to 0
     agents_i = 0
-    queues = set()
-    status_flags = set()
+    agents = list()
 
     async for msg in msgs:
         payload = int(msg.payload.decode())
@@ -125,29 +89,27 @@ async def n_agents_manager(stack, tasks, client, msgs):
             #add agent
             await post_to_topic(client, "/agents/index", agents_i)
 
-            #init agent n's queue and status flag adding each to their respective set 
-            queue = asyncio.Queue()
-            queues.add(queue)
-            status_flag = asyncio.Event()
-            status_flags.add(status_flag)
+            #init agent n
+            agent = AgentInterface(args.Algorithm, client, agents_i)
+            agents.append(agent)
 
             receive_topics = (f'/agents/{agents_i}/obv', f'/agents/{agents_i}/reward', f'/agents/{agents_i}/done')
             #start tasks to process messages received from agent n
             for topic in receive_topics:
                 manager = client.filtered_messages((topic))
                 msgs = await stack.enter_async_context(manager)
-                task = asyncio.create_task(process_messages(msgs, queue))
+                task = asyncio.create_task(agent.process_messages(msgs))
                 tasks.add(task)
 
             manager = client.filtered_messages((f'/agents/{agents_i}/status'))
             msgs = await stack.enter_async_context(manager)
-            task = asyncio.create_task(process_status(msgs, status_flag))
+            task = asyncio.create_task(agent.process_status(msgs))
             tasks.add(task)
 
             #subscribe to agent n's topics
             await client.subscribe(f'/agents/{agents_i}/#')
 
-            task = asyncio.create_task(agent_run(client, agents_i, queue, status_flag))
+            task = asyncio.create_task(agent.run())
             tasks.add(task)
 
             agents_i += 1
@@ -158,67 +120,12 @@ async def n_agents_manager(stack, tasks, client, msgs):
             agents_i -= 1
             logging.info("Agent removed, number of agents = %i", agents_i)
 
-async def agent_run(client, n, queue, status_flag):
+async def algorithm_run(agents):
     """
-        coroutine to run the rl algorithm for agent n
-
-        client is the mqtt client object
-
-        n is the index of the agent
-
-        queue is the Queue for messages received from agent n
-
-        status_flag is a flag for agent n's status
     """
-    logging.info("Agent %i initialised", n)
-
-#    if args.Algorithm == "qlearning":
-#        algorithm = QLearning([[100], [4, 4]])
-#    elif args.Algorithm == "dqn":
-#        algorithm = DQN([[100], args.hidden_size, [4, 4]], gamma=args.gamma, epsilon_max=args.epsilon_max, epsilon_min=args.epsilon_min, lr=args.learning_rate, lr_decay=args.learning_rate_decay, lr_decay_steps=args.time_steps, DRQN=False, saved_path=args.model_path)
-#    elif args.Algorithm == "drqn":
-#        algorithm = DQN([[100], args.hidden_size, [4, 4]], gamma=args.gamma, epsilon_max=args.epsilon_max, epsilon_min=args.epsilon_min, lr=args.learning_rate, lr_decay=args.learning_rate_decay, lr_decay_steps=args.time_steps, DRQN=True, saved_path=args.model_path)
-#    elif args.Algorithm == "policy_gradient":
-#        algorithm = PolicyGradient([[100], args.hidden_size, [4, 4]], gamma=args.gamma, lr=args.learning_rate, lr_decay=args.learning_rate_decay, lr_decay_steps=args.time_steps, saved_path=args.model_path)
-#    elif args.Algorithm == "ddrqn":
-#        algorithm = DDRQN([[100], args.hidden_size, [4, 4]], gamma=args.gamma, epsilon_max=args.epsilon_max, epsilon_min=args.epsilon_min, lr=args.learning_rate, lr_decay=args.learning_rate_decay, lr_decay_steps=args.time_steps, saved_path=args.model_path)
-#    elif args.Algorithm == "ma_actor_critic":
-#        algorithm = MAActorCritic([[100], args.hidden_size, [4, 4]], gamma=args.gamma, lr=args.learning_rate, lr_decay=args.learning_rate_decay, lr_decay_steps=args.time_steps, saved_path=args.model_path)
-
-    #agent n coroutine initialised agent can start 
-    await post_to_topic(client, f'/agents/{n}/start', 1, retain=True)
-
-    #wait for agent n status to be true    
-    await status_flag.wait()
-
-    #get init observation from agent
-    obv = await queue.get()
-    obv = obv.split(':')[1]
-    print(f'agent {n} obv = {obv}')
-
-    while True:
-        action = 3 #algorithm.get_action(obv)
-
-        #wait for agent n status to be true    
-        await status_flag.wait()
-
-        #send action to agent
-        await post_to_topic(client, f'/agents/{n}/action', action)
-
-        #get observation, reward and done from agent
-        for i in range(3):
-            q_item = await queue.get()
-            topic = q_item.split(':')[0]
-            payload = q_item.split(':')[1]
-
-            #each may appear in queue in any order so must be processed into correct variable
-            if topic == f'/agents/{n}/obv': next_obv = payload
-            elif topic == f'/agents/{n}/reward': reward = payload
-            elif topic == f'/agents/{n}/done': done = payload
-
-#        algorithm.train(obv, action, reward, next_obv) 
-        print(f'agent {n} next_obv = {next_obv}\nagent {n} reward = {reward}\nagent {n} done = {done}')
-        obv = next_obv
+    for e in range(args.episodes):
+        for t in range(args.time_steps):
+            pass            
 
 async def cancel_tasks(tasks):
     """
