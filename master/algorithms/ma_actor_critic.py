@@ -1,15 +1,143 @@
 #!/usr/bin/env python3
 
+#-----------------------------------------------------------------------------------------------    
+# Imports
+#-----------------------------------------------------------------------------------------------
+
 import numpy as np
 import tensorflow as tf
+import logging
 
-from algorithms.actor_critic import ActorCritic
+from algorithms.rl_algorithm import RLAlgorithm
 
-class MAActorCritic():
+#-----------------------------------------------------------------------------------------------    
+# Functions
+#-----------------------------------------------------------------------------------------------
+
+def run_gym_ma_actor_critic_multi_agent(env, n_agents: int=1, render: bool=False, episodes: int=100, time_steps: int=10000):
     """
-        Class to contain the ACNetwork and all parameters
+        function to run multi-agent actor critic algorithm on a gym env
+
+        env is the gym env object
+
+        n_agents is the number of agents
+
+        render determines whether to render the env
+
+        episodes is the number of episodes to simulate
+
+        time steps is the maximum number of time steps per episode
+
+        returns obvs, actions, rewards and losses of all agents
     """
-    def __init__(self, sizes, gamma=0.99, lr_decay=0.9, lr=0.0001, lr_decay_steps=10000, n_agents=2, master=False, saved_path=None):
+    if n_agents < 1:
+        raise ValueError("Cannot have less than 1 agent.")
+    elif n_agents < 2:
+        logging.error("Running multi-agent function with only 1 agent. Use single agent function for single agent environments")
+
+    #get env variables
+    n_actions = env.action_space.n #number of actions
+    n_obvs = np.squeeze(env.observation_space.shape)
+
+    agents = [MAActorCritic(n_obvs, n_actions, master=True, n_agents=n_agents)]
+    agents.extend([MAActorCritic(n_obvs, n_actions, n_agents=n_agents) for i in range(n_agents - 1)])
+
+    #init arrays to collect data
+    all_obvs = []
+    all_actions = []
+    all_rewards = []
+    all_losses = []
+
+    #render env if enabled
+    if render:
+        env.render()
+
+    for e in range(episodes): 
+        obvs = env.reset()
+        
+        ep_obvs = []
+        ep_actions = []
+        ep_losses = []
+        total_rewards = np.zeros(n_agents)
+        done = False
+
+        for t in range(time_steps):
+            if render:
+                env.render()
+
+            actions = np.zeros(n_agents, dtype=int)
+
+            for i in range(n_agents):
+                actions[i] = agents[i].get_action(obvs[i])
+
+            next_obvs, rewards, done, _ = env.step(actions)
+
+            for i in range(n_agents):
+                #master stores items in an array ready to be inserted with other agents items during communication
+                if agents[i].master:
+                    agents[i].obv_mem.append([obvs[i]])
+                    agents[i].reward_mem.append([rewards[i]])
+                    agents[i].next_obv_mem.append([next_obvs[i]])
+                #other agents only store their own items
+                else:
+                    agents[i].obv_mem.append(obvs[i])
+                    agents[i].reward_mem.append(rewards[i])
+                    agents[i].next_obv_mem.append(next_obvs[i])
+
+            #communication between agents
+            for i in range(1, n_agents - 1):
+                agents[0].receive_comm(agents[i].send_comm())
+
+            ep_obvs.append(actions)
+            ep_actions.append(obvs)
+
+            obvs = next_obvs
+            total_rewards += rewards
+
+            if done:
+                logging.info("Episode %u completed, after %u time steps, with total reward = %s", e, t, str(total_rewards))
+
+                all_obvs.append(ep_obvs)
+                all_actions.append(ep_actions)
+                all_rewards.append(total_rewards)
+                break
+
+            elif t >= (time_steps - 1):
+                logging.info("Episode %u timed out, with total reward = %s", e, str(total_rewards))
+
+                all_obvs.append(ep_obvs)
+                all_actions.append(ep_actions)
+                all_rewards.append(total_rewards)
+                break
+
+            if env.unwrapped.spec.id[0:5] == "maze-" and env.is_game_over():
+                sys.exit(0)
+
+
+        #master trains actor and critic network first
+        loss = agents[0].train()
+        ep_losses.append(loss)
+        for i in range(1, n_agents - 1):
+            #slaves receive critic network values from master
+            agents[i].receive_comm(agents[0].send_comm())
+            
+            #slaves train their actor networks using master critic value
+            loss = agents[i].train()
+            ep_losses.append(loss)
+
+        all_losses.append(ep_losses)
+
+    return all_obvs, all_actions, all_rewards, all_losses
+
+#-----------------------------------------------------------------------------------------------    
+# Classes
+#-----------------------------------------------------------------------------------------------
+
+class MAActorCritic(RLAlgorithm):
+    """
+        Class to contain the ACNetwork and all parameters with methods to train network and get actions
+    """
+    def __init__(self, n_obvs: int, n_actions: int, hidden_size: int=128, gamma: float=0.99, decay: float=0.9, lr: float=0.0001, lr_decay_steps: int=10000, n_agents: int=2, master: bool=False, saved_path: str=None):
         """
             function to initialise the class
 
@@ -22,7 +150,7 @@ class MAActorCritic():
 
             lr is the learning rate of the neural network
 
-            lr_decay is a float which is the rate at which the learning rate will decay exponentially
+            decay is a float which is the rate at which the learning rate will decay exponentially
 
             lr_decay_steps is an int which is the number of time steps to decay the learning rate
 
@@ -34,41 +162,78 @@ class MAActorCritic():
         """
         self.gamma = gamma
         self.lr = lr
-        self.lr_decay = lr_decay
-        self.n_actions = np.shape(sizes[2])[1]
-        self.replay_mem = []
-        self.n_agents = n_agents
-        self.master = master
-        self.eps = np.finfo(np.float32).eps.item()
+        self.decay = decay
+        self.n_actions = n_actions
 
-        self.actor_net = ActorNet(sizes)
+        self._eps = np.finfo(np.float32).eps.item()
+        self._n_agents = n_agents
+        self._master = master
+        self._action_mem = []
+        self._obv_mem = []
+        self._reward_mem = []
+        self._next_obv_mem = []
 
-        self.lr_decay_fn = tf.keras.optimizers.schedules.ExponentialDecay(self.lr, decay_steps=lr_decay_steps, decay_rate=self.lr_decay)
+        #init neural net
+        inputs = tf.keras.layers.Input(shape=(n_obvs,))
+        common = tf.keras.layers.Dense(hidden_size, activation="relu")(inputs)
+        actor = tf.keras.layers.Dense(n_actions, activation="softmax")(common)
+        self.actor_net = tf.keras.Model(inputs=inputs, outputs=actor)
+
+        self.lr_decay_fn = tf.keras.optimizers.schedules.ExponentialDecay(self.lr, decay_steps=lr_decay_steps, decay_rate=self.decay)
         self.a_opt = tf.keras.optimizers.Adam(learning_rate=self.lr_decay_fn) #Adam optimiser is...
 
         if self.master:
             #only master contains the global critic net
-            self.critic_net = CriticNet(sizes, self.n_agents)
+            critic = tf.keras.layers.Dense(1, activation="linear")(common)
+            self.critic_net = tf.keras.Model(inputs=inputs, outputs=critic)
 
             self.c_opt = tf.keras.optimizers.Adam(learning_rate=self.lr_decay_fn) #Adam optimiser is...
             self.loss_fn = tf.keras.losses.Huber() #Huber loss is...
 
         #load a saved model (neural net) if provided
         if saved_path:
-            self.actor_net = tf.keras.models.load_model(f'{saved_path}/actor', custom_object={"CustomModel": ActorNet})
+            self.actor_net = tf.keras.models.load_model(f'{saved_path}/actor')#, custom_object={"CustomModel": ActorNet})
 
             if self.master:
-                self.critic_net = tf.keras.models.load_model(f'{saved_path}/critic', custom_object={"CustomModel": CriticNet})
+                self.critic_net = tf.keras.models.load_model(f'{saved_path}/critic')#, custom_object={"CustomModel": CriticNet})
 
-    def get_parameters(self):
-        """
-            function to get the parameters of the algorithm
+    #-------------------------------------------------------------------------------------------
+    # Properties
+    #-------------------------------------------------------------------------------------------
 
-            returns a dict with all the algorithm parameters
-        """
-        return {"gamma": self.gamma, "lr": self.lr, "lr_decay": self.lr_decay}
+    @property
+    def eps(self) -> float:
+        return self._eps
 
-    def save_model(self, path):
+    @property
+    def n_agents(self) -> int:
+        return self._n_agents
+
+    @property
+    def master(self) -> bool:
+        return self._master
+
+    @property
+    def action_mem(self) -> list:
+        return self._action_mem
+
+    @property
+    def obv_mem(self) -> list:
+        return self._obv_mem
+
+    @property
+    def reward_mem(self) -> list:
+        return self._reward_mem
+
+    @property
+    def next_obv_mem(self) -> list:
+        return self._next_obv_mem
+
+    #-------------------------------------------------------------------------------------------
+    # Methods
+    #-------------------------------------------------------------------------------------------
+
+    def save_model(self, path: str):
         """
             function to save the tensorflow model (neural net) to a file
 
@@ -79,7 +244,7 @@ class MAActorCritic():
         if self.master:
             self.critic_net.save(f'{path}/critic')
 
-    def get_action(self, obv):
+    def get_action(self, obv: np.ndarray) -> int:
         """
             function to get the action based on the current observation using the 
             policy generated by the neural net
@@ -88,28 +253,15 @@ class MAActorCritic():
 
             returns the action to take
         """
-        action_probs = self.actor_net(np.array([obv]))
+        action_probs = self.actor_net(np.expand_dims(obv, axis=0))
         action = np.random.choice(self.n_actions, p=action_probs.numpy()[0])
 
-        return action
-
-    def store_step(self, obv, action, reward, next_obv):
-        """
-            function to store an step's tuple of values
-
-            obv is the observation of the current state
-
-            action is an int of the action taken
-
-            reward is the reward returned when the action is applied to the current state
-
-            next obv is the observation of the next state after action has been applied to the current state
-        """
-        #next_obv is not used in training so doesn't need to be saved
         if self.master:
-            self.replay_mem.append({"obvs": [obv], "actions": [action], "rewards": [reward]})
+            self.action_mem.append([action])
         else:
-            self.replay_mem.append({"obv": obv, "action": action, "reward": reward})
+            self.action_mem.append(action)
+
+        return action
 
     def train(self):
         """
@@ -123,21 +275,21 @@ class MAActorCritic():
         #master agent has a different replay memory structure as it must hold data for all agents not only itself
         if self.master:
             #samples of each piece of data of this agent
-            obv_batch = np.array([self.replay_mem[i]["obvs"][0] for i in range(np.shape(self.replay_mem)[0])])
-            action_batch = np.array([self.replay_mem[i]["actions"][0] for i in range(np.shape(self.replay_mem)[0])])
+            obv_batch = np.array([self.obv_mem[i][0] for i in range(np.shape(self.obv_mem)[0])])
+            action_batch = np.array([self.action_mem[i][0] for i in range(np.shape(self.action_mem)[0])])
 
             #samples of obvs and actions of all agents flattened for input to critic array
-            all_obv_batches = np.array([np.concatenate(self.replay_mem[i]["obvs"], axis=0) for i in range(np.shape(self.replay_mem)[0])])
-            all_action_batches = np.array([self.replay_mem[i]["actions"] for i in range(np.shape(self.replay_mem)[0])])
+            all_obv_batches = np.array([np.concatenate(self.obv_mem[i], axis=0) for i in range(np.shape(self.obv_mem)[0])])
+            all_action_batches = np.array([self.action_mem[i] for i in range(np.shape(self.action_mem)[0])])
 
             c_returns = []
             avg_discounted_sum = 0
 
             #calculate the discounted sum of rewards
-            for step in self.replay_mem[::-1]:
-                avg_reward = np.average(step["rewards"])
+            for reward in self.reward_mem[::-1]:
+                avg_reward = np.average(reward)
                 avg_discounted_sum = avg_reward + self.gamma * avg_discounted_sum
-                discounted_sum = step["rewards"][0] + self.gamma * discounted_sum
+                discounted_sum = reward[0] + self.gamma * discounted_sum
                 #iterated inversly therefore insert at beginning of array
                 c_returns.insert(0, avg_discounted_sum)
                 returns.insert(0, discounted_sum)
@@ -156,12 +308,12 @@ class MAActorCritic():
 
         else:
             #samples of each piece of data of this agent
-            obv_batch = np.array([self.replay_mem[i]["obv"] for i in range(np.shape(self.replay_mem)[0])])
-            action_batch = np.array([self.replay_mem[i]["action"] for i in range(np.shape(self.replay_mem)[0])])
+            obv_batch = np.array([self.obv_mem[i] for i in range(np.shape(self.obv_mem)[0])])
+            action_batch = np.array([self.action_mem[i] for i in range(np.shape(self.action_mem)[0])])
 
             #calculate the discounted sum of rewards
-            for step in self.replay_mem[::-1]:
-                discounted_sum = step["reward"] + self.gamma * discounted_sum
+            for reward in self.reward_mem[::-1]:
+                discounted_sum = reward + self.gamma * discounted_sum
                 #iterated inversly therefore insert at beginning of array
                 returns.insert(0, discounted_sum)
 
@@ -185,7 +337,10 @@ class MAActorCritic():
         self.a_opt.apply_gradients(zip(a_grads, self.actor_net.trainable_variables))
 
         #replay memory only stores a single episode 
-        self.replay_mem.clear()
+        self.obv_mem.clear()
+        self.action_mem.clear()
+        self.reward_mem.clear()
+        self.next_obv_mem.clear()
 
         return actor_loss
 
@@ -200,14 +355,14 @@ class MAActorCritic():
         """
         if self.master:
             #master sends the values output from the global critic net
-            comm = self.values
+            data = self.values
         else:
             #slave sends the most recent tuple from the replay memory
-            comm = self.replay_mem[-1]
+            data = {"action": self.action_mem[-1], "obv": self.obv_mem[-1], "reward": self.reward_mem[-1]}
 
-        return comm
+        return data
 
-    def receive_comm(self, comm):
+    def receive_comm(self, data):
         """
             function to receive a communication from another agent
 
@@ -217,88 +372,12 @@ class MAActorCritic():
         if self.master:
             #master receives a tuple from another agents replay memory
             #append tuple contents to replay mem in appropriate place 
-            self.replay_mem[-1]["obvs"].append(comm["obv"])
-            self.replay_mem[-1]["actions"].append(comm["action"])
-            self.replay_mem[-1]["rewards"].append(comm["reward"])
+            self.action_mem[-1].append(data["action"])
+            self.obv_mem[-1].append(data["obv"])
+            self.reward_mem[-1].append(data["reward"])
         else:
             #slave receives the values output from the global critic net
-            self.values = comm
-
-class ActorNet(tf.keras.Model):
-    """
-        Class to contain the neural network approximating the policy (actor)
-    """
-    def __init__(self, sizes):
-        """
-            function to initialise neural network
-
-            sizes is an array of [observations, hidden_size, actions] where observations is an array of 
-            [observations_low, observations_high], hidden_size is the number of neurons in the hidden layer 
-            and actions is an array of [actions_low, actions_high] in turn low is an array of low bounds for 
-            each observation/action and high is an array of high bounds for each observation/action respectively
-        """
-        super(ActorNet, self).__init__()
-        self.hidden1 = tf.keras.layers.Dense(np.shape(sizes[0])[1], activation="relu")
-        self.hidden2 = tf.keras.layers.Dense(sizes[1], activation="relu")
-        self.actor = tf.keras.layers.Dense(np.shape(sizes[2])[1], activation="softmax")
-
-    def call(self, obv):
-        """
-            function to define the forward pass of the neural network this function is called 
-            when ActorCriticNet(inputs) is called or ActorCriticNet.predict(inputs) is called
-
-            obv is the numpy array or tensor of the inputs values to the neural network
-
-            returns a tensor of the probability distribution of the policy
-        """
-        obv = self.hidden1(obv)
-        obv = self.hidden2(obv)
-        policy = self.actor(obv)
-
-        return policy
-
-class CriticNet(tf.keras.Model):
-    """
-        Class to contain the neural network approximating the Q-value function (critic)
-    """
-    def __init__(self, sizes, n_agents):
-        """
-            function to initialise neural network
-
-            sizes is an array of [observations, hidden_size, actions] where observations is an array of 
-            [observations_low, observations_high], hidden_size is the number of neurons in the hidden layer 
-            and actions is an array of [actions_low, actions_high] in turn low is an array of low bounds for 
-            each observation/action and high is an array of high bounds for each observation/action respectively
-        """
-        super(CriticNet, self).__init__()
-        self.obv_hidden1 = tf.keras.layers.Dense((np.shape(sizes[0])[1] * n_agents), activation="relu")
-        self.action_hidden1 = tf.keras.layers.Dense((np.shape(sizes[2])[1] * n_agents), activation="relu")
-
-        self.concatenate = tf.keras.layers.Concatenate()
-        
-        self.hidden2 = tf.keras.layers.Dense(sizes[1], activation="relu")
-        self.critic = tf.keras.layers.Dense(1, activation="linear")
-
-    def call(self, obvs, actions):
-        """
-            function to define the forward pass of the neural network this function is called 
-            when CriticNet(inputs) is called or CriticNet.predict(inputs) is called
-
-            obv is the numpy array or tensor of the inputs values to the neural network
-
-            actions is an array of actions taken by all agents
-
-            returns a tensor of the Q-value output by the neural network
-        """
-        obvs = self.obv_hidden1(obvs)
-        actions = self.action_hidden1(actions)
-
-        obvs_actions = self.concatenate([obvs, actions])
-
-        obvs_actions = self.hidden2(obvs_actions)
-        value = self.critic(obvs_actions)
-
-        return value
+            self.values = data
 
 
 

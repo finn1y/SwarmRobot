@@ -1,13 +1,116 @@
 #!/usr/bin/env python3
 
+#-----------------------------------------------------------------------------------------------    
+# Imports
+#-----------------------------------------------------------------------------------------------
+
 import numpy as np
 import tensorflow as tf
+import logging
 
-class DDPG():
+from algorithms.rl_algorithm import RLAlgorithm
+
+#-----------------------------------------------------------------------------------------------    
+# Functions
+#-----------------------------------------------------------------------------------------------
+
+def run_gym_ddpg_single_agent(env, render: bool=False, episodes: int=100, time_steps: int=10000):
+    """
+        function to run ddpg algorithm on a gym env
+
+        env is the gym env object
+
+        n_agents is the number of agents
+
+        render determines whether to render the env
+
+        episodes is the number of episodes to simulate
+
+        time steps is the maximum number of time steps per episode
+
+        returns obvs, actions, rewards and losses of all agents
+    """
+    batch_size = 32
+
+    #get env variables
+    n_actions = int(np.squeeze(env.action_space.shape)) #number of actions
+    n_obvs = np.squeeze(env.observation_space.shape)
+
+    agent = DDPG(n_obvs, n_actions, env.action_space.high, env.action_space.low, batch_size=batch_size)
+
+    #init arrays to collect data
+    all_obvs = []
+    all_actions = []
+    all_rewards = []
+    all_losses = []
+
+    #render env if enabled
+    if render:
+        env.render()
+
+    for e in range(episodes): 
+        obv = env.reset()
+
+        ep_obvs = []
+        ep_actions = []
+        total_reward = 0
+        done = False
+
+        for t in range(time_steps):
+            if render:
+                env.render()
+
+            action = agent.get_action(obv)
+    
+            next_obv, reward, done, _ = env.step(action)
+    
+            agent.obv_mem.append(obv)
+            agent.rewards_mem.append(reward)
+            agent.next_obv_mem.append(next_obv)
+    
+            ep_obvs.append(obv)
+            ep_actions.append(action)
+
+            obv = next_obv
+            total_reward += reward
+
+            if done:
+                logging.info("Episode %u completed, after %u time steps, with total reward = %f", e, t, total_reward)
+
+                all_obvs.append(ep_obvs)
+                all_actions.append(ep_actions)
+                all_rewards.append(total_reward)
+                break
+
+            elif t >= (time_steps - 1):
+                logging.info("Episode %u timed out, with total reward = %f", e, total_reward)
+
+                all_obvs.append(ep_obvs)
+                all_actions.append(ep_actions)
+                all_rewards.append(total_reward)
+                break
+
+            if env.unwrapped.spec.id[0:5] == "maze-" and env.is_game_over():
+                sys.exit(0)
+
+            if np.size(agent.action_mem) > batch_size:
+                loss = agent.train()
+                all_losses.append(loss)
+
+                if t % 10 == 0:
+                    agent.update_target_net()
+
+    return all_obvs, all_actions, all_rewards, all_losses
+
+#-----------------------------------------------------------------------------------------------    
+# Classes
+#-----------------------------------------------------------------------------------------------
+
+class DDPG(RLAlgorithm):
     """
         Class to contain the PolicyNetwork and all parameters
     """
-    def __init__(self, sizes, gamma=0.99, lr=0.001, lr_decay=0.9, lr_decay_steps=10000, mem_size=10000, saved_path=None):
+    def __init__(self, n_obvs: int, n_actions: int, action_high: np.ndarray, action_low: np.ndarray, hidden_size: int=256, gamma: float=0.99, lr: float=0.001, decay: float=0.9, lr_decay_steps: int=10000, mem_size: int=10000, batch_size: int=32, saved_path: str=None):
         """
             function to initialise the class
 
@@ -28,41 +131,89 @@ class DDPG():
         """
         self.gamma = gamma
         self.lr = lr
-        self.lr_decay = lr_decay
-        self.n_actions = np.shape(sizes[2])[1]
-        self.replay_mem = []
-        self.mem_size = mem_size
+        self.decay = decay
+        self.n_actions = n_actions
         #Ornstein-Uhlenbeck noise generator
         self.noise = OrnsteinUhlenbeckNoise(mean=np.zeros(1), std_deviation=0.2 * np.ones(1))
 
-        self.actor_net = ActorNet(sizes)
-        self.critic_net = CriticNet(sizes)
-        self.lr_decay_fn = tf.keras.optimizers.schedules.ExponentialDecay(self.lr, decay_steps=lr_decay_steps, decay_rate=self.lr_decay)
+        self._batch_size = batch_size
+        self._mem_size = mem_size
+        self._obv_mem = []
+        self._action_mem = []
+        self._rewards_mem = []
+        self._next_obv_mem = []
+
+        k_init = tf.random_uniform_initializer(minval=-0.003, maxval=0.003)
+
+        #init actor network
+        actor_inputs = tf.keras.layers.Input(shape=(n_obvs,))
+        actor_common = tf.keras.layers.Dense(hidden_size, activation="relu")(actor_inputs)
+        actor = tf.keras.layers.Dense(n_actions, activation="tanh", kernel_initializer=k_init)(actor_common)
+        #multiply by action space limit to keep within bounds
+        actor *= (action_high - action_low)
+        self.actor_net = tf.keras.Model(inputs=actor_inputs, outputs=actor)
+
+        #init critic network
+        obv_input = tf.keras.layers.Input(shape=(n_obvs,))
+        critic_common1 = tf.keras.layers.Dense(32, activation="relu")(obv_input)
+        action_input = tf.keras.layers.Input(shape=(n_actions,))
+        critic_common2 = tf.keras.layers.Dense(32, activation="relu")(action_input)
+        concat = tf.keras.layers.Concatenate()([critic_common1, critic_common2])
+        out = tf.keras.layers.Dense(hidden_size, activation="relu")(concat)
+        critic = tf.keras.layers.Dense(1)(out)
+        self.critic_net = tf.keras.Model(inputs=[obv_input, action_input], outputs=critic)
+
+        self.lr_decay_fn = tf.keras.optimizers.schedules.ExponentialDecay(self.lr, decay_steps=lr_decay_steps, decay_rate=self.decay)
         self.actor_opt = tf.keras.optimizers.Adam(learning_rate=self.lr_decay_fn) #Adam optimiser is...
         self.critic_opt = tf.keras.optimizers.Adam(learning_rate=self.lr_decay_fn) #Adam optimiser is...
 
-        self.actor_target = ActorNet(sizes)
+        #init target nets
+        self.actor_target = tf.keras.Model(inputs=actor_inputs, outputs=actor)
         self.actor_target.set_weights(self.actor_net.get_weights())
-        self.critic_target = CriticNet(sizes)
+        self.critic_target = tf.keras.Model(inputs=[obv_input, action_input], outputs=critic)
         self.critic_target.set_weights(self.critic_net.get_weights())
 
         #load a saved model (neural net) if provided
         if saved_path:
-            self.actor_net = tf.keras.models.load_model(f'{saved_path}/actor_net', custom_object={"CustomModel": ActorNet})
-            self.actor_target = tf.keras.models.load_model(f'{saved_path}/actor_net', custom_objects={"CustomModel": ActorNet})
+            self.actor_net = tf.keras.models.load_model(f'{saved_path}/actor_net')#, custom_object={"CustomModel": ActorNet})
+            self.actor_target = tf.keras.models.load_model(f'{saved_path}/actor_net')#, custom_objects={"CustomModel": ActorNet})
 
-            self.critic_net = tf.keras.models.load_model(f'{saved_path}/critic_net', custom_object={"CustomModel": CriticNet})
-            self.critic_target = tf.keras.models.load_model(f'{saved_path}/critic_net', custom_objects={"CustomModel": CriticNet})
+            self.critic_net = tf.keras.models.load_model(f'{saved_path}/critic_net')#, custom_object={"CustomModel": CriticNet})
+            self.critic_target = tf.keras.models.load_model(f'{saved_path}/critic_net')#, custom_objects={"CustomModel": CriticNet})
+    
+    #-------------------------------------------------------------------------------------------
+    # Properties
+    #-------------------------------------------------------------------------------------------
 
-    def get_parameters(self):
-        """
-            function to get the parameters of the algorithm
+    @property
+    def batch_size(self) -> int:
+        return self._batch_size
 
-            returns a dict with all the algorithm parameters
-        """
-        return {"gamma": self.gamma, "lr": self.lr, "lr_decay": self.lr_decay, "mem_size": self.mem_size}
+    @property
+    def mem_size(self) -> int:
+        return self._mem_size
 
-    def save_model(self, path):
+    @property
+    def obv_mem(self) -> list:
+        return self._obv_mem
+
+    @property
+    def action_mem(self) -> list:
+        return self._action_mem
+
+    @property
+    def rewards_mem(self) -> list:
+        return self._rewards_mem
+
+    @property
+    def next_obv_mem(self) -> list:
+        return self._next_obv_mem
+
+    #-------------------------------------------------------------------------------------------
+    # Methods
+    #-------------------------------------------------------------------------------------------
+
+    def save_model(self, path: str):
         """
             function to save the tensorflow model (neural net) to a file
 
@@ -71,7 +222,7 @@ class DDPG():
         self.actor_net.save(f'{path}/actor_net')
         self.critic_net.save(f'{path}/critic_net')
 
-    def get_action(self, obv):
+    def get_action(self, obv: np.ndarray) -> float:
         """
             function to get the action based on the current observation using the 
             policy generated by the neural net
@@ -80,33 +231,15 @@ class DDPG():
 
             returns the action to take
         """
-        action = self.actor_net(np.array([obv])).numpy()[0]            
+        action = self.actor_net(np.expand_dims(obv, axis=0)).numpy()[0]            
         #add noise for exploration
         action += self.noise()
 
+        self.action_mem.append(action)
+
         return action
 
-    def store_step(self, obv, action, reward, next_obv):
-        """
-            function to store an step's tuple of values
-
-            obv is the observation of the current state
-
-            action is an int of the action taken
-
-            reward is the reward returned when the action is applied to the current state
-
-            next obv is the observation of the next state after action has been applied to the current state
-            (placeholder for compatibility across algorithm classes)
-        """
-        #appends dictionary of step tuple to replay memory
-        self.replay_mem.append({"obv": obv, "action": action, "reward": reward, "next_obv": next_obv})
-
-        #if replay memory is greater than maximum size then remove oldest step
-        if len(self.replay_mem) > self.mem_size:
-            self.replay_mem.pop(0)
-
-    def train(self, batch_size):
+    def train(self) -> tf.Tensor:
         """
             function to train Policy network using previous episode data from replay memory
 
@@ -114,22 +247,22 @@ class DDPG():
 
             returns the loss of the training as a tensor
         """
-        indices = np.random.choice(range(len(self.replay_mem)), size=batch_size)
+        indices = np.random.choice(range(np.size(self.action_mem)), size=self.batch_size)
 
         #samples of each piece of data from a random step in replay memory
-        obv_batch = np.array([self.replay_mem[i]["obv"] for i in indices], dtype=np.float32)
-        action_batch = np.array([[self.replay_mem[i]["action"]] for i in indices], dtype=np.float32)
-        reward_batch = np.array([self.replay_mem[i]["reward"] for i in indices], dtype=np.float32)
-        next_obv_batch = np.array([self.replay_mem[i]["next_obv"] for i in indices], dtype=np.float32)
+        obv_batch = np.array([self.obv_mem[i] for i in indices])
+        action_batch = np.array([[self.action_mem[i]] for i in indices], dtype=np.float32)
+        reward_batch = np.array([self.rewards_mem[i] for i in indices], dtype=np.float32)
+        next_obv_batch = np.array([self.next_obv_mem[i] for i in indices])
 
         actor_targets = self.actor_target(next_obv_batch)
-        critic_targets = self.critic_target(next_obv_batch, actor_targets)
+        critic_targets = self.critic_target([next_obv_batch, actor_targets])
         #calculate expected reward for each sample
         critic_targets = reward_batch + self.gamma * critic_targets
 
         #backpropagation for critic network
         with tf.GradientTape() as tape:
-            values = self.critic_net(obv_batch, action_batch)
+            values = self.critic_net([obv_batch, action_batch])
             critic_loss = tf.reduce_mean(tf.square(critic_targets - values)) 
         
         critic_grads = tape.gradient(critic_loss, self.critic_net.trainable_variables)
@@ -138,11 +271,17 @@ class DDPG():
         #backpropagation for actor network using updated critic network
         with tf.GradientTape() as tape:
             actions = self.actor_net(obv_batch)
-            values = self.critic_net(obv_batch, actions)
+            values = self.critic_net([obv_batch, actions])
             actor_loss = -tf.reduce_mean(values)
 
         actor_grads = tape.gradient(actor_loss, self.actor_net.trainable_variables)
         self.actor_opt.apply_gradients(zip(actor_grads, self.actor_net.trainable_variables))
+
+        if np.size(self.action_mem) > self.mem_size:
+            self.action_mem.pop(0)
+            self.obv_mem.pop(0)
+            self.rewards_mem.pop(0)
+            self.next_obv_mem.pop(0)
 
         return actor_loss + critic_loss
 
@@ -153,101 +292,24 @@ class DDPG():
         self.actor_target.set_weights(self.actor_net.get_weights())
         self.critic_target.set_weights(self.critic_net.get_weights())
 
-class ActorNet(tf.keras.Model):
-    """
-        Class to contain the neural network approximating the policy (actor) and Q-value function (critic)
-    """
-    def __init__(self, sizes):
-        """
-            function to initialise the class
-
-            sizes is an array of [observations, hidden_size, actions] where observations is an array of 
-            [observations_low, observations_high], hidden_size is the number of neurons in the hidden layer 
-            and actions is an array of [actions_low, actions_high] in turn low is an array of low bounds for 
-            each observation/action and high is an array of high bounds for each observation/action respectively
-
-            continuous is a bool to determine if the action space is continuous
-        """
-        super(ActorNet, self).__init__()
-
-        #init to between -0.003 and 0.003 to prevent an output of -1 or 1 from the tanh output layer
-        k_init = tf.random_uniform_initializer(minval=-0.003, maxval=0.003)
-
-        self.hidden1 = tf.keras.layers.Dense(np.shape(sizes[0])[1], activation="relu")
-        self.hidden2 = tf.keras.layers.Dense(sizes[1], activation="relu")
-    
-        #continuous action space outputs tanh from net to provide value for each action    
-        self.actor = tf.keras.layers.Dense(np.shape(sizes[2])[1], activation="tanh", kernel_initializer=k_init)
-
-        #scaler for bounds of action space
-        self.scaler = sizes[2][1] - sizes[2][0]
-
-    def call(self, obv):
-        """
-            function to define the forward pass of the neural network this function is called 
-            when QNet(inputs) is called or QNet.predict(inputs) is called
-
-            obv is the numpy array or tensor of the inputs values to the neural network
-
-            returns a tensor of the probability distribution of the policy output by the neural network
-        """
-        obv = self.hidden1(obv)
-        obv = self.hidden2(obv)
-        #multiply output by scaler to keep within bounds of action space
-        policy = self.actor(obv) * self.scaler
-
-        return policy
-
-class CriticNet(tf.keras.Model):
-    """
-        Class to contain the neural network approximating the policy (actor) and Q-value function (critic)
-    """
-    def __init__(self, sizes):
-        """
-            function to initialise the class
-
-            sizes is an array of [observations, hidden_size, actions] where observations is an array of 
-            [observations_low, observations_high], hidden_size is the number of neurons in the hidden layer 
-            and actions is an array of [actions_low, actions_high] in turn low is an array of low bounds for 
-            each observation/action and high is an array of high bounds for each observation/action respectively
-
-            continuous is a bool to determine if the action space is continuous
-        """
-        super(CriticNet, self).__init__()
-        self.obv_hidden1 = tf.keras.layers.Dense(np.shape(sizes[0])[1], activation="relu")
-        self.action_hidden1 = tf.keras.layers.Dense(np.shape(sizes[2])[1], activation="relu")
-
-        self.concatenate = tf.keras.layers.Concatenate()
-
-        self.hidden2 = tf.keras.layers.Dense(sizes[1], activation="relu")
-        self.critic = tf.keras.layers.Dense(1, activation="linear")
-
-    def call(self, obv, action):
-        """
-            function to define the forward pass of the neural network this function is called 
-            when QNet(inputs) is called or QNet.predict(inputs) is called
-
-            obv is the numpy array or tensor of the inputs values to the neural network
-
-            action is the action taken for that observation as output by the actor network
-
-            returns a tensor of the probability distribution of the policy output by the neural network
-        """
-        obv = self.obv_hidden1(obv)
-        action = self.action_hidden1(action)
-
-        obv_action = self.concatenate([obv, action])
-
-        obv_action = self.hidden2(obv_action)
-        value = self.critic(obv_action)
-
-        return value
-
 class OrnsteinUhlenbeckNoise():
     """
         Class to generate Ornstein-Uhlenbeck noise
     """
-    def __init__(self, mean, std_deviation, theta=0.15, dt=1e-2, x_initial=None):
+    def __init__(self, mean: np.ndarray, std_deviation: np.ndarray, theta: float=0.15, dt: float=1e-2, x_initial: float=None):
+        """
+            function to init class
+
+            mean is the mean average of the noise
+
+            std_deviation is the standard deviation of the noise
+
+            theta is a constant parameter
+
+            dt is a constant parameter
+
+            x_initial is the init value of noise, when None initial is 0
+        """
         self.theta = theta
         self.mean = mean
         self.std_dev = std_deviation
@@ -255,23 +317,26 @@ class OrnsteinUhlenbeckNoise():
         self.x_initial = x_initial
         self.reset()
 
-    def __call__(self):
-        # Formula taken from https://www.wikipedia.org/wiki/Ornstein-Uhlenbeck_process.
-        x = (
-            self.x_prev
-            + self.theta * (self.mean - self.x_prev) * self.dt
-            + self.std_dev * np.sqrt(self.dt) * np.random.normal(size=self.mean.shape)
-        )
-        # Store x into x_prev
-        # Makes next noise dependent on current one
+    def __call__(self) -> float:
+        """
+            function run when object is called
+        """
+        #formula taken from https://www.wikipedia.org/wiki/Ornstein-Uhlenbeck_process.
+        x = (self.x_prev + self.theta * (self.mean - self.x_prev) * self.dt  + self.std_dev * np.sqrt(self.dt) * np.random.normal(size=self.mean.shape))
+        #store x into x_prev, makes next noise dependent on current one
         self.x_prev = x
 
         return x
 
     def reset(self):
+        """
+            function to reset noise to init value
+        """
         if self.x_initial is not None:
             self.x_prev = self.x_initial
         else:
             self.x_prev = np.zeros_like(self.mean)
+
+
 
 

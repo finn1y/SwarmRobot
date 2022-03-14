@@ -1,15 +1,129 @@
 #!/usr/bin/env python3
 
+#-----------------------------------------------------------------------------------------------    
+# Imports
+#-----------------------------------------------------------------------------------------------
+
 import numpy as np
 import tensorflow as tf
+import logging
 
 from algorithms.dqn import DQN
 
+#-----------------------------------------------------------------------------------------------    
+# Functions
+#-----------------------------------------------------------------------------------------------
+
+def run_gym_ddrqn_multi_agent(env, n_agents: int=1, render: bool=False, episodes: int=100, time_steps: int=10000):
+    """
+        function to run ddrqn algorithm on a gym env
+
+        env is the gym env object
+
+        n_agents is the number of agents
+
+        render determines whether to render the env
+
+        episodes is the number of episodes to simulate
+
+        time steps is the maximum number of time steps per episode
+
+        returns obvs, actions, rewards and losses of all agents
+    """
+    if n_agents < 1:
+        raise ValueError("Cannot have less than 1 agent.")
+    elif n_agents < 2:
+        logging.error("Running multi-agent function with only 1 agent. Use single agent function for single agent environments")
+
+    #get env variables
+    n_actions = env.action_space.n #number of actions
+    n_obvs = np.squeeze(env.observation_space.shape)
+
+    agents = [DDRQN(n_obvs, n_actions) for i in range(n_agents)]
+
+    #init arrays to collect data
+    all_obvs = []
+    all_actions = []
+    all_rewards = []
+    all_losses = []
+
+    #render env if enabled
+    if render:
+        env.render()
+
+    for e in range(episodes): 
+        obvs = env.reset()
+        
+        ep_obvs = []
+        ep_actions = []
+        ep_losses = []
+        total_rewards = np.zeros(n_agents)
+        done = False
+
+        for t in range(time_steps):
+            if render:
+                env.render()
+
+            actions = np.zeros(n_agents, dtype=int)
+
+            for i in range(n_agents):
+                actions[i] = agents[i].get_action(obvs[i])
+
+            next_obvs, rewards, done, _ = env.step(actions)
+
+            for i in range(n_agents):
+                loss = agents[i].train(obvs[i], actions[i], rewards[i], next_obvs[i])
+                ep_losses.append(loss)
+
+                #each agent sends their updated weights to the next agent for the next update
+                j = (i + 1) % (n_agents - 1)
+                agents[j].receive_comm(agents[i].send_comm())
+
+            for i in range(n_agents):
+                #agent 0 has the most up to date network and should update all other agents networks
+                agents[i].receive_comm(agents[0].send_comm())
+
+            ep_obvs.append(actions)
+            ep_actions.append(obvs)
+
+            obvs = next_obvs
+            total_rewards += rewards
+
+            if done:
+                logging.info("Episode %u completed, after %u time steps, with total reward = %s", e, t, str(total_rewards))
+
+                all_obvs.append(ep_obvs)
+                all_actions.append(ep_actions)
+                all_rewards.append(total_rewards)
+                all_losses.append(ep_losses)
+                break
+
+            elif t >= (time_steps - 1):
+                logging.info("Episode %u timed out, with total reward = %s", e, str(total_rewards))
+
+                all_obvs.append(ep_obvs)
+                all_actions.append(ep_actions)
+                all_rewards.append(total_rewards)
+                all_losses.append(ep_losses)
+                break
+
+            if env.unwrapped.spec.id[0:5] == "maze-" and env.is_game_over():
+                sys.exit(0)
+
+        for i in range(n_agents):
+            agents[i].update_parameters(e)
+
+    return all_obvs, all_actions, all_rewards, all_losses
+
+#-----------------------------------------------------------------------------------------------    
+# Classes
+#-----------------------------------------------------------------------------------------------
+
 class DDRQN(DQN):
     """
-        Class to contain the QNetwork and all parameters
+        Class to contain the QNetwork and all parameters with methods to train network and get actions
     """
-    def __init__(self, sizes, gamma=0.99, epsilon_max=1.0, epsilon_min=0.01, lr=0.0001, lr_decay=0.9, lr_decay_steps=10000, saved_path=None):
+    def __init__(self, n_obvs: int, n_actions: int, hidden_size: int=128, gamma: float=0.99, epsilon_max: float=1.0, epsilon_min: float=0.01, lr: float=0.00025, decay: float=0.999, lr_decay_steps: int=10000, saved_path: str=None):
         """
             function to initialise the class
 
@@ -20,41 +134,44 @@ class DDRQN(DQN):
 
             gamma is the discount factor of future rewards
 
-            epsilon max is a float which is the maximum exploration rate of the agent
+            epsilon max is the maximum exploration rate of the agent
 
-            epsilon min is a float which is the minimum exploration rate of the agent
+            epsilon min is the minimum exploration rate of the agent
 
             lr is the learning rate of the neural network
 
-            lr_decay is a float which is the rate at which the learning rate will decay exponentially
+            decay is the rate at which the learning rate will decay exponentially
 
-            lr_decay_steps is an int which is the number of time steps to decay the learning rate
+            lr_decay_steps is the number of time steps to decay the learning rate
 
-            saved_path is a string of the path to the saved Q-network if on is being loaded
+            saved_path is the path to the saved Q-network if on is being loaded
         """
         #provide previous action as an input as well as observation
-        #calculate the shape of the array to concatenate to observations
-        axes = np.size(np.shape(sizes[0])) - 1
-        ones_shape = [np.shape(sizes[0])[i] for i in range(axes)]
-        ones_shape.append(1)
+        n_inputs = n_obvs + 1
 
-        #add one to the number of observations for building neural net
-        sizes[0] = np.concatenate((sizes[0], np.ones(ones_shape)), axis=axes)
-
-        super(DDRQN, self).__init__(sizes, gamma=gamma, epsilon_max=epsilon_max, epsilon_min=epsilon_min, lr=lr, lr_decay=lr_decay, lr_decay_steps=lr_decay_steps, DRQN=True, saved_path=saved_path)
+        super(DDRQN, self).__init__(n_inputs, n_actions, hidden_size=hidden_size, gamma=gamma, epsilon_max=epsilon_max, epsilon_min=epsilon_min, lr=lr, decay=decay, lr_decay_steps=lr_decay_steps, batch_size=1, DRQN=True, saved_path=saved_path)
         #init agent actions to random action
         self.prev_action = np.random.choice(self.n_actions)
 
-    def get_parameters(self):
-        """
-            function to get the parameters of the algorithm, overwrite function inherited from DQN as not all parameters are relevant to DDRQN
+    #-------------------------------------------------------------------------------------------
+    # Properties
+    #-------------------------------------------------------------------------------------------
 
-            returns a dict with all the algorithm parameters
-        """
-        return {"gamma": self.gamma, "epsilon_max": self.epsilon_max, "epsilon_min": self.epsilon_min, 
-                "lr": self.lr, "lr_decay": self.lr_decay}
+    @property
+    def prev_action(self) -> int:
+        return self._prev_action
 
-    def get_action(self, obv):
+    @prev_action.setter
+    def prev_action(self, val: int):
+        if not isinstance(val, int):
+            raise TypeError("Previous action must be an integer.")
+        self._prev_action = val
+
+    #-------------------------------------------------------------------------------------------
+    # Methods
+    #-------------------------------------------------------------------------------------------
+
+    def get_action(self, obv: np.ndarray) -> int:
         """
             function to get the action based on the current observation using an epsilon-greedy policy
 
@@ -68,22 +185,15 @@ class DDRQN(DQN):
         #take random action with probability epsilon (explore rate)
         if np.random.uniform(0, 1) < self.epsilon:
             action = np.random.choice(self.n_actions)
-
         else:
             #calculate Q-values using Q-network
-            values = self.q_net(np.array([obv]))
+            values = self.q_net(np.expand_dims(obv, axis=(0, 1)))
             #policy is greedy
             action = np.argmax(values)
 
         return action
 
-    def store_step(self, obv, action, reward, next_obv):
-        """
-            replay memory is disabled for DDRQN due to the non-sationary nature of mutli-agent environments
-        """
-        None
-
-    def train(self, obv, action, reward, next_obv): 
+    def train(self, obv: np.ndarray, action: int, reward: float, next_obv: np.ndarray) -> float: 
         """
             function to train agent by applying gradient descent to the net
 
@@ -100,17 +210,15 @@ class DDRQN(DQN):
         #previous action is current action for next observation
         next_obv = np.concatenate((next_obv, [action]), axis=0)
 
-        target = self.target_net(np.array([next_obv]))
+        target = self.target_net(np.expand_dims(next_obv, axis=(0, 1)))
         #calculate expected reward
         target = reward + self.gamma * np.max(target)
 
         #one hot encoding of action to apply to Q-values
-        action_mask = np.eye(self.n_actions)[np.array(action).reshape(-1)]
-
-        obv = np.array([obv])
+        action_mask = np.eye(self.n_actions)[action.reshape(-1)]
 
         with tf.GradientTape() as tape:
-            values = self.q_net(obv)
+            values = self.q_net(np.expand_dims(obv, axis=(0, 1)))
             #calculate Q-values based on action taken for each step
             value = tf.reduce_sum(values * action_mask)
             loss = self.loss_fn([target], [value])
@@ -119,11 +227,11 @@ class DDRQN(DQN):
         self.opt.apply_gradients(zip(grads, self.q_net.trainable_variables))
 
         #add action to memory (must be done after training so previous action can be used in training)
-        self.prev_action = action
+        self.prev_action = int(action)
 
         return loss
 
-    def send_comm(self):
+    def send_comm(self) -> tf.Tensor:
         """
             function to send a communication to another agent
 
@@ -133,7 +241,7 @@ class DDRQN(DQN):
 
         return comm
 
-    def receive_comm(self, comm):
+    def receive_comm(self, comm: tf.Tensor):
         """
             function to receive a communication from another agent
 

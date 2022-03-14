@@ -44,6 +44,7 @@ def get_args(algoritms):
     parser.add_argument("--epsilon-min", type=float, default=0.01, help="Epsilon min is the final value of epsilon for epsilon-greedy policy which is decayed to over training from epsilon max. Should be greater than 0 and less then epsilon max")
     parser.add_argument("-l", "--learning-rate", type=float, default=0.0001, help="Learning rate of the algorithm. Should be greater than 0 and less than 1")
     parser.add_argument("--learning-rate-decay", type=float, default=0.95, help="Learning rate decay the base used for exponential decay of the learning rate during training if set to 1 will have no decay. Should be greater than 0 and less than 1")
+    parser.add_argument("--verbose", "-v", action="count", default=0, help="Increase verbosity level")
 
     return parser.parse_args()
 
@@ -60,7 +61,7 @@ async def post_to_topic(client, topic, msg, retain=False):
         retain is a bool to determine if the message should be retained in the topic by the broker defaults to False
     """
     #loop through topics and messages
-    logging.info("Publishing %s to %s", msg, topic)
+    logging.debug("Publishing %s to %s", msg, topic)
     await client.publish(topic, msg, qos=1, retain=retain)
     await asyncio.sleep(2)
 
@@ -120,13 +121,6 @@ async def n_agents_manager(stack, tasks, client, msgs):
             agents_i -= 1
             logging.info("Agent removed, number of agents = %i", agents_i)
 
-async def algorithm_run(agents):
-    """
-    """
-    for e in range(args.episodes):
-        for t in range(args.time_steps):
-            pass            
-
 async def cancel_tasks(tasks):
     """
         coroutine to cancel all tasks and clean up on exit
@@ -178,13 +172,39 @@ async def main():
 #-----------------------------------------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    logging.basicConfig(format="%(levelname)s: %(message)s", level=logging.INFO)
+    #init logging
+    logging.basicConfig(format="%(asctime)s.%(msecs)03d: %(levelname)s: %(message)s", datefmt='%Y-%m-%d %H:%M:%S', level=logging.INFO)
+
+    if not hasattr(logging, "VDEBUG") and not hasattr(logging, "vdebug") and not hasattr(logging.getLoggerClass(), "vdebug"):
+        #add new logging level "vdebug" to logger if not already added
+        def logForLevel(self, message, *args, **kwargs):
+            if self.isEnabledFor(logging.DEBUG - 5):
+                self._log(logging.DEBUG - 5, message, args, **kwargs)
+
+        def logToRoot(message, *args, **kwargs):
+            logging.log(logging.DEBUG - 5, message, *args, **kwargs)
+
+        logging.addLevelName(logging.DEBUG - 5, "VDEBUG")
+    
+        setattr(logging, "VDEBUG", logging.DEBUG - 5)
+        setattr(logging.getLoggerClass(), "vdebug", logForLevel)
+        setattr(logging, "vdebug", logToRoot)
 
     #list of all possible algorithms
     algorithms = ["qlearning", "dqn", "drqn", "policy_gradient", "actor_critic", "ddrqn", "ma_actor_critic"]
 
+    #global arguments so that can be accessed by any coroutine
     global args 
     args = get_args(algorithms)
+
+    #set more verbose logging level, default is info (verbose == 0)
+    if args.verbose == 1:
+        logging.getLogger().setLevel(logging.DEBUG)
+    elif args.verbose == 2:
+        logging.getLogger().setLevel(logging.VDEBUG)
+    elif args.verbose > 2:
+        logging.warning("Maximum verbosity level is 2; logging level set to verbose debug (verbosity level 2).")
+        logging.getLogger().setLevel(logging.VDEBUG)
 
     asyncio.run(main())
 

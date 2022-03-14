@@ -1,9 +1,19 @@
+#!/usr/bin/env python3
+
+#-----------------------------------------------------------------------------------------------    
+# Imports
+#-----------------------------------------------------------------------------------------------
+
 import asyncio
 import logging
 
 from asyncio_mqtt import Client
 
 from algorithms import *
+
+#-----------------------------------------------------------------------------------------------    
+# Classes
+#-----------------------------------------------------------------------------------------------
 
 class AgentInterface():
     """
@@ -21,23 +31,45 @@ class AgentInterface():
             n is the index number of this agent
         """
         self.client = client
-        self.n = n
-        self.queue = asyncio.Queue()
-        self.status_flag = asyncio.Event()
+        self._n = n
+        self._queue = asyncio.Queue()
+        self._status_flag = asyncio.Event()
 
         #init algorithm given algorithm name
         if algorithm == "qlearning":
-            self.algorithm = QLearning([[[0], [100]], [[0, 1, 2, 3], [0, 1, 2, 3]]])
+            self.algorithm = QLearning(2, 4)
         elif algorithm == "dqn":
-            self.algorithm = DQN([[[0], [100]], args.hidden_size, [[0, 1, 2, 3], [0, 1, 2, 3]]], gamma=args.gamma, epsilon_max=args.epsilon_max, epsilon_min=args.epsilon_min, lr=args.learning_rate, lr_decay=args.learning_rate_decay, lr_decay_steps=args.time_steps, DRQN=False, saved_path=args.model_path)
+            self.algorithm = DQN(2, 4)
         elif algorithm == "drqn":
-            self.algorithm = DQN([[[0], [100]], args.hidden_size, [[0, 1, 2, 3], [0, 1, 2, 3]]], gamma=args.gamma, epsilon_max=args.epsilon_max, epsilon_min=args.epsilon_min, lr=args.learning_rate, lr_decay=args.learning_rate_decay, lr_decay_steps=args.time_steps, DRQN=True, saved_path=args.model_path)
+            self.algorithm = DQN(2, 4, DRQN=True)
         elif algorithm == "policy_gradient":
-            self.algorithm = PolicyGradient([[[0], [100]], args.hidden_size, [[0, 1, 2, 3], [0, 1, 2, 3]]], gamma=args.gamma, lr=args.learning_rate, lr_decay=args.learning_rate_decay, lr_decay_steps=args.time_steps, saved_path=args.model_path)
+            self.algorithm = PolicyGradient(2, 4)
+        elif algorihtm == "actor_critic":
+            self.algorithm = ActorCritic(2, 4)
         elif algorithm == "ddrqn":
-            self.algorithm = DDRQN([[[0], [100]], args.hidden_size, [[0, 1, 2, 3], [0, 1, 2, 3]]], gamma=args.gamma, epsilon_max=args.epsilon_max, epsilon_min=args.epsilon_min, lr=args.learning_rate, lr_decay=args.learning_rate_decay, lr_decay_steps=args.time_steps, saved_path=args.model_path)
+            self.algorithm = DDRQN(2, 4)
         elif algorithm == "ma_actor_critic":
-            self.algorithm = MAActorCritic([[[0], [100]], args.hidden_size, [[0, 1, 2, 3], [0, 1, 2, 3]]], gamma=args.gamma, lr=args.learning_rate, lr_decay=args.learning_rate_decay, lr_decay_steps=args.time_steps, saved_path=args.model_path)
+            self.algorithm = MAActorCritic(2, 4)
+
+    #-------------------------------------------------------------------------------------------
+    # Properties
+    #-------------------------------------------------------------------------------------------
+
+    @property
+    def n(self) -> int:
+        return self._n
+
+    @property
+    def queue(self) -> asyncio.Queue
+        return self._queue
+
+    @property
+    def status_flag(self) -> asyncioEvent
+        return self._status_flag
+
+    #-------------------------------------------------------------------------------------------
+    # Methods
+    #-------------------------------------------------------------------------------------------
 
     async def post_to_topic(self, topic, msg, retain=False):
         """
@@ -51,7 +83,7 @@ class AgentInterface():
     
             retain is a bool to determine if the message should be retained in the topic by the broker defaults to False
         """
-        logging.info("Publishing %s to %s", msg, topic)
+        logging.debug("Publishing %s to %s", msg, topic)
         await self.client.publish(topic, msg, qos=1, retain=retain)
         await asyncio.sleep(2)
 
@@ -80,7 +112,7 @@ class AgentInterface():
         async for msg in msgs:
             topic = msg.topic
             payload = msg.payload.decode()
-            logging.info("%s received from topic %s", payload, topic)
+            logging.debug("%s received from topic %s", payload, topic)
             q_item = f'{topic}:{payload}'
             await self.queue.put(q_item)
 
