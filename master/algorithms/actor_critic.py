@@ -72,8 +72,8 @@ def run_gym_actor_critic_multi_agent(env, n_agents: int=1, render: bool=False, e
             next_obvs, rewards, done, _ = env.step(actions)
 
             for i in range(n_agents):
-                agents[i].reward_mem.append(rewards[i])
-                agents[i].next_obv_mem.append(next_obv[i])
+                agents[i].rewards_mem.append(rewards[i])
+                agents[i].next_obv_mem.append(next_obvs[i])
 
             ep_obvs.append(actions)
             ep_actions.append(obvs)

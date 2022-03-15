@@ -31,9 +31,9 @@ class AgentInterface():
             n is the index number of this agent
         """
         self.client = client
+        self.queue = asyncio.Queue()
+        self.status_flag = asyncio.Event()
         self._n = n
-        self._queue = asyncio.Queue()
-        self._status_flag = asyncio.Event()
 
         #init algorithm given algorithm name
         if algorithm == "qlearning":
@@ -58,14 +58,6 @@ class AgentInterface():
     @property
     def n(self) -> int:
         return self._n
-
-    @property
-    def queue(self) -> asyncio.Queue
-        return self._queue
-
-    @property
-    def status_flag(self) -> asyncioEvent
-        return self._status_flag
 
     #-------------------------------------------------------------------------------------------
     # Methods

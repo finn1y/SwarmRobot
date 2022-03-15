@@ -15,35 +15,20 @@ import logging
 from dotenv import load_dotenv
 from contextlib import AsyncExitStack, asynccontextmanager
 from asyncio_mqtt import Client, Will, MqttError
-from agent import AgentInterface
+from agent_interface import AgentInterface
 
 #-----------------------------------------------------------------------------------------------------------
 # Functions
 #-----------------------------------------------------------------------------------------------------------
 
-def get_args(algoritms):
+def get_args():
     """
         function to get the command line arguments
-
-        algorithms is a list of all possible algorithms
 
         returns a namespace of arguments
     """
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("Algorithm", type=str, choices=algorithms, help="RL Algorithm to train agent with")
-    parser.add_argument("-e", "--episodes", type=int, default=None, help="Number of episodes")
-    parser.add_argument("-t", "--time-steps", type=int, default=10000, help="Number of time steps per episode")
-    parser.add_argument("-b", "--batch-size", type=int, default=32, help="Number of batches sampled from replay memory during training")
-    parser.add_argument("-m", "--model-path", default=None, help="Path to the saved model to continue training")
-    parser.add_argument("-s", "--hidden-size", type=int, default=128, help="Number of neurons in the hidden layer of neural nets")
-    parser.add_argument("-p", "--plot", action="store_true", help="Flag to plot data after completion")
-    parser.add_argument("-d", "--directory", type=str, default=None, help="Save the results from the training to the specified directory")
-    parser.add_argument("-g", "--gamma", type=float, default=0.99, help="Discount factor to multiply by future expected rewards in the algorithm. Should be greater than 0 and less than 1")
-    parser.add_argument("--epsilon-max", type=float, default=1.0, help="Epsilon max is the intial value of epsilon for epsilon-greedy policy. Should be greater than 0 and less than or equal to 1")
-    parser.add_argument("--epsilon-min", type=float, default=0.01, help="Epsilon min is the final value of epsilon for epsilon-greedy policy which is decayed to over training from epsilon max. Should be greater than 0 and less then epsilon max")
-    parser.add_argument("-l", "--learning-rate", type=float, default=0.0001, help="Learning rate of the algorithm. Should be greater than 0 and less than 1")
-    parser.add_argument("--learning-rate-decay", type=float, default=0.95, help="Learning rate decay the base used for exponential decay of the learning rate during training if set to 1 will have no decay. Should be greater than 0 and less than 1")
     parser.add_argument("--verbose", "-v", action="count", default=0, help="Increase verbosity level")
 
     return parser.parse_args()
@@ -91,7 +76,7 @@ async def n_agents_manager(stack, tasks, client, msgs):
             await post_to_topic(client, "/agents/index", agents_i)
 
             #init agent n
-            agent = AgentInterface(args.Algorithm, client, agents_i)
+            agent = AgentInterface("qlearning", client, agents_i)
             agents.append(agent)
 
             receive_topics = (f'/agents/{agents_i}/obv', f'/agents/{agents_i}/reward', f'/agents/{agents_i}/done')
@@ -190,12 +175,8 @@ if __name__ == "__main__":
         setattr(logging.getLoggerClass(), "vdebug", logForLevel)
         setattr(logging, "vdebug", logToRoot)
 
-    #list of all possible algorithms
-    algorithms = ["qlearning", "dqn", "drqn", "policy_gradient", "actor_critic", "ddrqn", "ma_actor_critic"]
-
     #global arguments so that can be accessed by any coroutine
-    global args 
-    args = get_args(algorithms)
+    args = get_args()
 
     #set more verbose logging level, default is info (verbose == 0)
     if args.verbose == 1:

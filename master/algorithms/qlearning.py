@@ -7,7 +7,6 @@
 import sys, os, pickle
 import logging
 import numpy as np
-import gym
 
 from algorithms.rl_algorithm import RLAlgorithm
 
@@ -49,6 +48,9 @@ def run_gym_q_learning_multi_agent(env, n_agents: int=1, render: bool=False, epi
     all_actions = []
     all_rewards = []
 
+    #robot-maze env can save the path taken by the agents each episode
+    robot_paths = []
+
     #render env if enabled
     if render:
         env.render()
@@ -76,7 +78,7 @@ def run_gym_q_learning_multi_agent(env, n_agents: int=1, render: bool=False, epi
             for i in range(n_agents):
                 actions[i] = agents[i].get_action(states[i])
 
-            next_obvs, rewards, done, _ = env.step(actions)
+            next_obvs, rewards, done, info = env.step(actions)
 
             for i in range(n_agents):
                 next_states[i] = agents[i].index_obv(next_obvs[i], low, high)
@@ -96,6 +98,10 @@ def run_gym_q_learning_multi_agent(env, n_agents: int=1, render: bool=False, epi
                 all_obvs.append(ep_obvs)
                 all_actions.append(ep_actions)
                 all_rewards.append(total_rewards)
+
+                if env.unwrapped.spec.id[0:13] == "gym_robot_maze":
+                    robot_paths.append(info["robot_path"])
+
                 break
 
             elif t >= (time_steps - 1):
@@ -104,6 +110,10 @@ def run_gym_q_learning_multi_agent(env, n_agents: int=1, render: bool=False, epi
                 all_obvs.append(ep_obvs)
                 all_actions.append(ep_actions)
                 all_rewards.append(total_rewards)
+
+                if env.unwrapped.spec.id[0:13] == "gym_robot_maze":
+                    robot_paths.append(info["robot_path"])
+
                 break
 
             if env.unwrapped.spec.id[0:5] == "maze-" and env.is_game_over():
@@ -112,7 +122,7 @@ def run_gym_q_learning_multi_agent(env, n_agents: int=1, render: bool=False, epi
         for i in range(n_agents):
             agents[i].update_parameters(e)
 
-    return all_obvs, all_actions, all_rewards
+    return all_obvs, all_actions, all_rewards, robot_paths
 
 def run_gym_q_learning_single_agent(env, render: bool=False, episodes: int=100, time_steps: int=10000):
     """
@@ -134,7 +144,7 @@ def run_gym_q_learning_single_agent(env, render: bool=False, episodes: int=100, 
     n_actions = env.action_space.n #number of actions
     low = env.observation_space.low #minimum values of observation space
     high = env.observation_space.high #maximum values of observation space
-    n_states = np.prod(high - low + 1) #number of discretised states
+    n_states = round(np.prod(high - low + 1)) #number of discretised states
 
     agent = QLearning(n_states, n_actions)
 
@@ -142,6 +152,9 @@ def run_gym_q_learning_single_agent(env, render: bool=False, episodes: int=100, 
     all_obvs = []
     all_actions = []
     all_rewards = []
+
+    #robot-maze env can save the path taken by the agents each episode
+    robot_paths = []
 
     #render env if enabled
     if render:
@@ -180,6 +193,10 @@ def run_gym_q_learning_single_agent(env, render: bool=False, episodes: int=100, 
                 all_obvs.append(ep_obvs)
                 all_actions.append(ep_actions)
                 all_rewards.append(total_reward)
+
+                if env.unwrapped.spec.id[0:13] == "gym_robot_maze":
+                    robot_paths.append(info["robot_path"])
+
                 break
 
             elif t >= (time_steps - 1):
@@ -188,6 +205,10 @@ def run_gym_q_learning_single_agent(env, render: bool=False, episodes: int=100, 
                 all_obvs.append(ep_obvs)
                 all_actions.append(ep_actions)
                 all_rewards.append(total_reward)
+
+                if env.unwrapped.spec.id[0:13] == "gym_robot_maze":
+                    robot_paths.append(info["robot_path"])
+
                 break
 
             if env.unwrapped.spec.id[0:5] == "maze-" and env.is_game_over():
@@ -195,7 +216,7 @@ def run_gym_q_learning_single_agent(env, render: bool=False, episodes: int=100, 
 
         agent.update_parameters(e)
 
-    return all_obvs, all_actions, all_rewards
+    return all_obvs, all_actions, all_rewards, robot_paths
 
 #-----------------------------------------------------------------------------------------------    
 # Classes

@@ -117,7 +117,7 @@ def run_gym_dqn_multi_agent(env, n_agents: int=1, render: bool=False, episodes: 
         for i in range(n_agents):
             agents[i].update_parameters(e)
 
-    return all_obvs, all_actions, all_rewards
+    return all_obvs, all_actions, all_rewards, all_losses
 
 def run_gym_dqn_single_agent(env, render: bool=False, episodes: int=100, time_steps: int=10000, recurrent: bool=False):
     """
@@ -257,11 +257,12 @@ class DQN():
         self._reward_mem = []
         self._next_obv_mem = []
         self._batch_size = batch_size
+        self._DRQN = DRQN
         
         #init network
         inputs = tf.keras.layers.Input(shape=(None, n_obvs,))
         #DRQN uses LSTM (long short term memory) in place of input layer
-        if DRQN:
+        if self.DRQN:
             common = tf.keras.layers.LSTM(hidden_size)(inputs)
         else:
             common = tf.keras.layers.Dense(hidden_size, activation="relu")(inputs)
@@ -333,6 +334,10 @@ class DQN():
     def batch_size(self) -> int:
         return self._batch_size
 
+    @property
+    def DRQN(self) -> bool:
+        return self._DRQN
+
     #-------------------------------------------------------------------------------------------
     # Methods
     #-------------------------------------------------------------------------------------------
@@ -383,6 +388,9 @@ class DQN():
 
             returns the loss of the training as a tensor
         """
+        #recurrent network input has different array shape
+        axis = (0, 1) if self.DRQN else 2
+
         indices = np.random.choice(range(np.size(self.action_mem)), size=self.batch_size)
 
         #samples of each piece of data from a random step in replay memory
@@ -393,7 +401,7 @@ class DQN():
 
         targets = self.target_net(np.expand_dims(next_obv_batch, axis=0))
         #calculate expected reward for each sample
-        targets = reward_batch + self.gamma * np.max(targets, axis=2)
+        targets = reward_batch + self.gamma * np.max(targets, axis=axis)
 
         #one hot encoding of actions to apply to Q-values
         action_masks = np.eye(self.n_actions)[action_batch.reshape(-1)]
@@ -401,7 +409,7 @@ class DQN():
         with tf.GradientTape() as tape:
             values = self.q_net(np.expand_dims(obv_batch, axis=0))
             #calculate Q-values based on action taken for each step
-            values = tf.reduce_sum(values * action_masks, axis=2)
+            values = tf.reduce_sum(values * action_masks, axis=axis)
             loss = self.loss_fn(targets, values)
 
         grads = tape.gradient(loss, self.q_net.trainable_variables)

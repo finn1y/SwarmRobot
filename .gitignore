@@ -36,3 +36,6 @@ MANIFEST
 # ESP-IDP Generated files
 build/
 sdkconfig*
+
+# Test Generated files
+logs/

@@ -7,6 +7,7 @@
 #-----------------------------------------------------------------------------------------------------------
 
 import os, sys, subprocess
+import argparse
 import ssl
 import asyncio
 import logging
@@ -20,6 +21,18 @@ from random import randint
 # Functions
 #-----------------------------------------------------------------------------------------------------------
 
+def get_args():
+    """
+        function to get the command line arguments
+
+        returns a namespace of arguments
+    """
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument("--verbose", "-v", action="count", default=0, help="Increase verbosity level")
+
+    return parser.parse_args()
+
 async def post_to_topic(client, topic, msg, retain=False):
     """
         coroutine to publish messages to topics to an mqtt broker connected to by client
@@ -32,7 +45,7 @@ async def post_to_topic(client, topic, msg, retain=False):
 
         retain is a bool to determine if the message should be retained in the topic by the broker defaults to False
     """
-    logging.info("Publishing %s to %s", msg, topic)
+    logging.debug("Publishing %s to %s", msg, topic)
     await client.publish(topic, msg, qos=1, retain=retain)
     await asyncio.sleep(2)
 
@@ -47,7 +60,7 @@ async def process_messages(msgs, queue):
     async for msg in msgs:
         topic = msg.topic
         payload = msg.payload.decode()
-        logging.info("%s received from topic %s", payload, topic)
+        logging.debug("%s received from topic %s", payload, topic)
         q_item = f'{topic}:{payload}'
         await queue.put(q_item)
 
@@ -92,7 +105,7 @@ async def get_item(desired_topic, queue):
             q_item = f'{topic}:{payload}'
             await queue.put(q_item)
 
-async def main_loop(stack, tasks, client, msg_q):
+async def main_loop(stack, tasks, client, msg_q, status_flag):
     """
         coroutine to simulate main function of agent over MQTT:
             1. get an index
@@ -118,6 +131,9 @@ async def main_loop(stack, tasks, client, msg_q):
 
     #unsubscribe from index topic when this agent has an index
     await client.unsubscribe("/agents/index")
+
+    #post to agent n status
+    await post_to_topic(client, (f'/agents/{n}/status'), (1), retain=True)
     
     manager = client.filtered_messages((f'/agents/{n}/action'))
     msgs = await stack.enter_async_context(manager)
@@ -212,7 +228,35 @@ async def main():
 #-----------------------------------------------------------------------------------------------------------
 
 if __name__ == "__main__":
-    logging.basicConfig(format="%(levelname)s: %(message)s", level=logging.INFO)
+    #init logging
+    logging.basicConfig(format="%(asctime)s.%(msecs)03d: %(levelname)s: %(message)s", datefmt='%Y-%m-%d %H:%M:%S', level=logging.INFO)
+
+    if not hasattr(logging, "VDEBUG") and not hasattr(logging, "vdebug") and not hasattr(logging.getLoggerClass(), "vdebug"):
+        #add new logging level "vdebug" to logger if not already added
+        def logForLevel(self, message, *args, **kwargs):
+            if self.isEnabledFor(logging.DEBUG - 5):
+                self._log(logging.DEBUG - 5, message, args, **kwargs)
+
+        def logToRoot(message, *args, **kwargs):
+            logging.log(logging.DEBUG - 5, message, *args, **kwargs)
+
+        logging.addLevelName(logging.DEBUG - 5, "VDEBUG")
+    
+        setattr(logging, "VDEBUG", logging.DEBUG - 5)
+        setattr(logging.getLoggerClass(), "vdebug", logForLevel)
+        setattr(logging, "vdebug", logToRoot)
+
+    #global arguments so that can be accessed by any coroutine
+    args = get_args()
+
+    #set more verbose logging level, default is info (verbose == 0)
+    if args.verbose == 1:
+        logging.getLogger().setLevel(logging.DEBUG)
+    elif args.verbose == 2:
+        logging.getLogger().setLevel(logging.VDEBUG)
+    elif args.verbose > 2:
+        logging.warning("Maximum verbosity level is 2; logging level set to verbose debug (verbosity level 2).")
+        logging.getLogger().setLevel(logging.VDEBUG)
 
     asyncio.run(main())
 
