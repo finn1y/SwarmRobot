@@ -35,6 +35,8 @@ The project can then be configured and flashed onto your board:
 cd <path-to-c_agent>/c_agent
 idf.py menuconfig
 ```
+Within the menuconfig there are options for WiFi and MQTT credentials as well as GPIO pin connections, these should be set for your services and device.
+
 2. Build project
 ```
 idf.py build
