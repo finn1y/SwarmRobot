@@ -1,6 +1,23 @@
-/*
+/* 
+ * main.c
  *
+ * Author: Finn Middlton-Baird
+ * 
+ * Comments: main file for agent of swarm robot designed for esp32 devkitM-1 board, use sdkconfig to define
+ *      hardware options (e.g. pin connections) and wireless credentials
+ *      
+ * Requires: mqtt.c, wifi.c, motor_driver component and ultrasonic_sensor component
+ * 
+ * Revision: 1.0
  *
+ * In this file:
+ *      Includes - line 26
+ *      Defines - line 46
+ *      Global Variables - line 60
+ *      main - line 87
+ *      (main) init - line 89
+ *      (main) main loop - line 196
+ *      
  */
 
 //-----------------------------------------------------------------------------------------------------------

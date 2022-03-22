@@ -1,3 +1,29 @@
+/* 
+ * mqtt.c
+ *
+ * Author: Finn Middlton-Baird
+ * 
+ * Comments: file containing function to init MQTT, connect to broker, handle incoming data from broker and
+ *      process received data, MQTT requires the board to be connected to the same network, either locally or
+ *      over the internet, that the broker is also connected to. Code based off of example WiFi connectivity 
+ *      found on GitHub in official esp-idf docs: 
+ *      https://github.com/espressif/esp-idf/tree/2f9d47c708f39772b0e8f92d147b9e85aa3a0b19/examples/protocols/mqtt/ssl
+ *      
+ * Requires: mqtt.h and pem certificate for MQTT broker website if used
+ * 
+ * Revision: 1.0
+ *
+ * In this file:
+ *      Includes - line 28
+ *      Global Variables - line 34
+ *      Functions - line 70
+ *      (Functions) str_to_int - line 71
+ *      (Functions) mqtt_event_handler - line 86
+ *      (Functions) init_mqtt - line 143
+ *      (Functions) process_messages - line 161
+ *
+ */
+
 //-----------------------------------------------------------------------------------------------------------
 // Includes
 //-----------------------------------------------------------------------------------------------------------
@@ -8,6 +34,7 @@
 // Global Variables
 //-----------------------------------------------------------------------------------------------------------
 
+//certificate for SSL connections included on board as binary
 extern const uint8_t mqtt_pem_start[] asm("_binary_mqtt_pem_start");
 extern const uint8_t mqtt_pem_end[] asm("_binary_mqtt_pem_end");
 

@@ -1,3 +1,26 @@
+/* 
+ * motor_driver.c
+ *
+ * Author: Finn Middlton-Baird
+ * 
+ * Comments: file containing all functionality for motor driver hardware on the board
+ *      
+ * Requires: motor_driver.h
+ * 
+ * Revision: 1.0
+ *
+ * In this file:
+ *      Includes - line 27
+ *      Global Variables - line 33
+ *      Functions - line 53
+ *      (Functions) motor_timer_alarm_cb - line 54
+ *      (Functions) init_motor_driver - line 64
+ *      (Functions) move_forward - line 96
+ *      (Functions) turn_left - line 129
+ *      (Functions) turn_right - line 162
+ *      
+ */
+
 //-----------------------------------------------------------------------------------------------------------
 // Includes
 //-----------------------------------------------------------------------------------------------------------

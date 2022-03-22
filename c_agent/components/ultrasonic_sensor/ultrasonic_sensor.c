@@ -1,3 +1,24 @@
+/* 
+ * ultrasonic_sensor.c
+ *
+ * Author: Finn Middlton-Baird
+ * 
+ * Comments: file containing all functionality for ultrasonic sensor hardware on the board
+ *      
+ * Requires: ultrasonic_sensor.h
+ * 
+ * Revision: 1.0
+ *
+ * In this file:
+ *      Includes - line 25
+ *      Global Variables - line 31
+ *      Functions - line 45
+ *      (Functions) echo_isr_handle - line 46
+ *      (Functions) init_ultrasonic_sensor - line 62
+ *      (Functions) get_distance - line 100
+ *      
+ */
+
 //-----------------------------------------------------------------------------------------------------------
 // Includes
 //-----------------------------------------------------------------------------------------------------------

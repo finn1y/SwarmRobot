@@ -1,3 +1,25 @@
+/* 
+ * mqtt.h
+ *
+ * Author: Finn Middlton-Baird
+ * 
+ * Comments: file containing functions for connecting to WiFi network using credentials defined in sdkconfig
+ *      code based off of example WiFi connectivity found on GitHub in official esp-idf docs: 
+ *      https://github.com/espressif/esp-idf/tree/2f9d47c708f39772b0e8f92d147b9e85aa3a0b19/examples/wifi/getting_started/station
+ *      
+ * Requires: wifi.h and WiFi capabilities of the target
+ * 
+ * Revision: 1.0
+ *
+ * In this file:
+ *      Includes - line 26
+ *      Global Variables - line 32
+ *      Functions - line 42
+ *      (Functions) wifi_event_handler - line 43
+ *      (Functions) init_wifi_sta - line 75
+ *
+ */
+
 //-----------------------------------------------------------------------------------------------------------
 // Includes
 //-----------------------------------------------------------------------------------------------------------

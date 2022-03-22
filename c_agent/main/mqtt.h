@@ -1,3 +1,22 @@
+/* 
+ * mqtt.h
+ *
+ * Author: Finn Middlton-Baird
+ * 
+ * Comments: file containing defines, includes and delarations required by MQTT processes
+ *      
+ * Requires: none
+ * 
+ * Revision: 1.0
+ *
+ * In this file:
+ *      Includes - line 26
+ *      Defines - line 39
+ *      Global Variables - line 50
+ *      Function Declarations - line 59
+ *
+ */
+
 #ifndef MQTT_H
 #define MQTT_h
 

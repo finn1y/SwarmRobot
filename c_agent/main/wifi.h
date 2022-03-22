@@ -1,3 +1,21 @@
+/* 
+ * wifi.h
+ *
+ * Author: Finn Middlton-Baird
+ * 
+ * Comments: file containing defines, includes and function declarations required for WiFi connectivity
+ *      
+ * Requires: none
+ * 
+ * Revision: 1.0
+ *
+ * In this file:
+ *      Includes - line 25
+ *      Defines - line 40
+ *      Function Declarations - line 53
+ *      
+ */
+
 #ifndef WIFI_H
 #define WIFI_H
 

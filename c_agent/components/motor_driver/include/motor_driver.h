@@ -1,3 +1,21 @@
+/* 
+ * motor_driver.h
+ *
+ * Author: Finn Middlton-Baird
+ * 
+ * Comments: file containing defines, includes and delarations required by motor driver functions
+ *      
+ * Requires: none
+ * 
+ * Revision: 1.0
+ *
+ * In this file:
+ *      Includes - line 25
+ *      Defines - line 36
+ *      Function Declarations - line 44
+ *
+ */
+
 #ifndef MOTOR_DRIVER_H
 #define MOTOR_DRIVER_H
 

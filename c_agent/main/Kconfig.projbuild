@@ -1,3 +1,4 @@
+#Menu for user to provide WiFi and MQTT credentials
 menu "Credentials config"
 
     config WIFI_SSID
@@ -38,6 +39,7 @@ menu "Credentials config"
 
 endmenu
 
+#Menu for user to provide pin mapping for ultrasonic senor and motor driver
 menu "GPIO pin conf"
 
     config ULTRASONIC_SENSOR_TRIG
