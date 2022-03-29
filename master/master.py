@@ -108,7 +108,7 @@ async def n_agents_manager(stack, tasks, client, msgs):
 
 async def cancel_tasks(tasks):
     """
-        coroutine to cancel all tasks and clean up on exit
+        coroutine to cancel all tasks and clean upon exit
     """
     for task in tasks:
         if task.done():

@@ -104,16 +104,30 @@ float get_distance(int trig_pin) {
     gpio_set_level(trig_pin, 0);
 
     //wait for end of echo pulse
-    while (! echo_end) {
-        continue;
+    for (uint16_t i = 0; i < 2500; i++) { //only wait until max val to prevent watchdog timer not reset
+        if (echo_end > 0) {
+            break;
+        }
+
+        //pulse timed out (dist larger than max val)
+        if (i >= 2499) {
+            //set echo end to val which provides max dist
+            echo_end = echo_start + 2500;
+
+            ESP_LOGI(SENSOR_TAG, "Echo timed out");
+            break;    
+        }
+
+        //delay one tick period of echo timer
+        vTaskDelay(0.001 / portTICK_PERIOD_MS);
     }
 
     float dist = ((((echo_end - echo_start) * 1e-6) * 340) / 2) * 1e3; //dist in mm
 
     //limit distance measurements to hardware capability
-    if (dist > 4000) {
-        //max distance is 4m (4000mm)
-        dist = 4000.00;
+    if (dist > 400) {
+        //max distance is 40cm (400mm)
+        dist = 400.00;
     } else if (dist < 20.00) {
         //min distance is 20mm 
         dist = 2.00;

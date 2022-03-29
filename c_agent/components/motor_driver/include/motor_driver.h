@@ -35,8 +35,6 @@
 //-----------------------------------------------------------------------------------------------------------
 
 #define MOTOR_DRIVER_TAG    "Motor Driver Log"
-#define WHEEL_RADIUS        21 //42mm wheel diameter
-#define AXEL_LENGTH         90 //90mm wheel centre to wheel centre
 
 //-----------------------------------------------------------------------------------------------------------
 // Function Declarations

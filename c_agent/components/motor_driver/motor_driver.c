@@ -44,8 +44,8 @@ gptimer_alarm_config_t motor_alarm_conf = {
 uint8_t motor_flag = 0;
 
 //velocities of motor
-static const float linear_vel = 0.5;
-static const float angular_vel = 0.5;
+static const float linear_vel = 0.3;
+static const float angular_vel = 6.6;
 
 //-----------------------------------------------------------------------------------------------------------
 // Functions
@@ -106,11 +106,11 @@ void move_forward(float dist) {
     //start timer
     gptimer_start(motor_tmr);
     //start motors
-    gpio_set_level(12, 0);
-    gpio_set_level(13, 1);
+    gpio_set_level(12, 1);
+    gpio_set_level(13, 0);
 
-    gpio_set_level(21, 0);
-    gpio_set_level(22, 1);
+    gpio_set_level(21, 1);
+    gpio_set_level(22, 0);
 
     //wait for motor to complete
     while (! motor_flag) {
@@ -139,11 +139,11 @@ void turn_left(float angle) {
     //start timer
     gptimer_start(motor_tmr);
     //start motors
-    gpio_set_level(12, 0);
-    gpio_set_level(13, 1);
+    gpio_set_level(12, 1);
+    gpio_set_level(13, 0);
 
-    gpio_set_level(21, 1);
-    gpio_set_level(22, 0);
+    gpio_set_level(21, 0);
+    gpio_set_level(22, 1);
 
     //wait for motor to complete
     while (! motor_flag) {
@@ -171,11 +171,11 @@ void turn_right(float angle) {
     //start timer
     gptimer_start(motor_tmr);
     //start motors
-    gpio_set_level(12, 1);
-    gpio_set_level(13, 0);
+    gpio_set_level(12, 0);
+    gpio_set_level(13, 1);
 
-    gpio_set_level(21, 0);
-    gpio_set_level(22, 1);
+    gpio_set_level(21, 1);
+    gpio_set_level(22, 0);
 
     //wait for motor to complete
     while (! motor_flag) {
