@@ -81,6 +81,7 @@ char action_topic[25];
 gptimer_handle_t echo_tmr = NULL;
 gptimer_handle_t motor_tmr = NULL;
 
+
 //-----------------------------------------------------------------------------------------------------------
 // main
 //-----------------------------------------------------------------------------------------------------------
@@ -198,9 +199,17 @@ void app_main() {
         if (action_flag) {
             switch (str_to_int(action_buffer)) {
                 case 0:
-                    //move forward
-                    move_forward(50);
-                    reward = -1;
+                    //check if collision would occur
+                    if (dist_front <= 200) {
+                        ESP_LOGI(MOTOR_DRIVER_TAG, "Object detected ahead %.2fmm away, not performing action 'move forward' preventing collision", dist_front);
+
+                        reward = -50;
+                    } else {
+                        //move forward
+                        move_forward(200);
+                        reward = -1;
+                    }
+
                     break;
 
                 case 1:
