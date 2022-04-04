@@ -6,7 +6,7 @@ The board used to develop and test this software is the [ESP32-DevKitM-1](https:
 ## Installation
 
 To use this code on an esp based board the esp-idf toolchain needs to be installed, a step-by-step guide for windows, linux or macOS can be found [here](https://docs.espressif.com/projects/esp-idf/en/latest/esp32/get-started/index.html#get-started-step-by-step).
-TO install on linux:
+To install on linux:
 
 1. Install prerequisites
 ```
