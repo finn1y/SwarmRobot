@@ -11,6 +11,8 @@ import argparse
 import ssl
 import asyncio
 import logging
+import gym
+import gym_maze
 
 from contextlib import AsyncExitStack, asynccontextmanager
 from asyncio_mqtt import Client, Will, MqttError
@@ -121,6 +123,9 @@ async def main_loop(stack, tasks, client, msg_q, status_flag):
 
         msg_q is a queue for this agents received messages
     """
+    #init env
+    env = gym.make("maze-sample-5x5-v0", enable_render=False)
+
     start_flag = asyncio.Event()
 
     await post_to_topic(client, ("/agents/add"), (1))
@@ -151,29 +156,46 @@ async def main_loop(stack, tasks, client, msg_q, status_flag):
     #wait for master to initialise agent
     logging.info("Waiting for start...")
     await start_flag.wait()
+    logging.info("Starting simulation")
 
-    #post initial (dummy) observation
-    await post_to_topic(client, (f'/agents/{n}/obv'), ("[0]"))
+    for e in range(100):
+        #get initial observation
+        obv = env.reset()
+        done = False
 
-    while True:
-        #get action
-        action = int(await get_item(f'/agents/{n}/action', msg_q)) 
-        logging.info("Perform action: %u", action)
+        #post initial observation
+        await post_to_topic(client, (f'/agents/{n}/obv'), (f'{obv}'))
 
-        #get (dummy) observation and reward
-        obv = randint(0, 100)
-        reward = randint(-100, 100)
+        total_reward = 0
 
-        #post to relevant topics
-        agent_topics = (f'/agents/{n}/obv', f'/agents/{n}/reward', f'/agents/{n}/done')
-        agent_msgs = [f'[{obv}]', f'{reward}', "False"]
+        for t in range(10000):
+            #get action
+            action = int(await get_item(f'/agents/{n}/action', msg_q)) 
 
-        logging.info("Observation: [%u]", obv)
-        logging.info("Reward: %i", reward)
-        logging.info("Done: False")
+            logging.debug("Perform action: %u", action)
 
-        for topic, msg in zip(agent_topics, agent_msgs):
-            await post_to_topic(client, topic, msg)
+            obv, reward, done, info = env.step(action)
+
+            #post to relevant topics
+            agent_topics = (f'/agents/{n}/obv', f'/agents/{n}/reward', f'/agents/{n}/done')
+            agent_msgs = [f'{obv}', f'{reward}', f'{done}']
+
+            logging.debug("Observation: %s", obv)
+            logging.debug("Reward: %i", reward)
+            logging.debug("Done: %s", done)
+
+            for topic, msg in zip(agent_topics, agent_msgs):
+                await post_to_topic(client, topic, msg)
+
+            total_reward += reward
+
+            if done:
+                logging.info(f'Episode {e} completed with reward: {total_reward}')
+                break
+
+            if t >= 9999:
+                logging.info(f'Episode {e} timed out with reward: {total_reward}')
+                break;
 
 async def cancel_tasks(tasks):
     """
@@ -246,7 +268,9 @@ if __name__ == "__main__":
         setattr(logging.getLoggerClass(), "vdebug", logForLevel)
         setattr(logging, "vdebug", logToRoot)
 
+
     #global arguments so that can be accessed by any coroutine
+    global args
     args = get_args()
 
     #set more verbose logging level, default is info (verbose == 0)

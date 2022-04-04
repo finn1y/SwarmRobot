@@ -76,7 +76,7 @@ async def n_agents_manager(stack, tasks, client, msgs):
             await post_to_topic(client, "/agents/index", agents_i)
 
             #init agent n
-            agent = AgentInterface("qlearning", client, agents_i)
+            agent = AgentInterface(client, agents_i)
             agents.append(agent)
 
             receive_topics = (f'/agents/{agents_i}/obv', f'/agents/{agents_i}/reward', f'/agents/{agents_i}/done')

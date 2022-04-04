@@ -4,12 +4,16 @@ asyncio-mqtt==0.12.1
 cachetools==5.0.0
 certifi==2021.10.8
 charset-normalizer==2.0.12
+cloudpickle==2.0.0
 flatbuffers==2.0
 gast==0.5.3
 google-auth==2.6.0
 google-auth-oauthlib==0.4.6
 google-pasta==0.2.0
 grpcio==1.44.0
+gym==0.23.1
+-e git+https://github.com/MattChanTK/gym-maze.git@83176811b49b5538a6213520612f44fb1bc49114#egg=gym_maze
+gym-notices==0.0.6
 h5py==3.6.0
 idna==3.3
 importlib-metadata==4.11.2
@@ -24,6 +28,7 @@ paho-mqtt==1.6.1
 protobuf==3.19.4
 pyasn1==0.4.8
 pyasn1-modules==0.2.8
+pygame==2.1.2
 python-dotenv==0.19.2
 requests==2.27.1
 requests-oauthlib==1.3.1

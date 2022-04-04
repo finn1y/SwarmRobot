@@ -6,6 +6,7 @@
 
 import asyncio
 import logging
+import numpy as np
 
 from asyncio_mqtt import Client
 
@@ -20,7 +21,7 @@ class AgentInterface():
         class to contain agent variables including: RL algorithm object, index, message queue 
         and a status flag for master status and agent coroutines
     """
-    def __init__(self, algorithm: str, client: Client, n: int):
+    def __init__(self, client: Client, n: int):
         """
             init for agent class
 
@@ -35,21 +36,7 @@ class AgentInterface():
         self.status_flag = asyncio.Event()
         self._n = n
 
-        #init algorithm given algorithm name
-        if algorithm == "qlearning":
-            self.algorithm = QLearning(2, 4)
-        elif algorithm == "dqn":
-            self.algorithm = DQN(2, 4)
-        elif algorithm == "drqn":
-            self.algorithm = DQN(2, 4, DRQN=True)
-        elif algorithm == "policy_gradient":
-            self.algorithm = PolicyGradient(2, 4)
-        elif algorihtm == "actor_critic":
-            self.algorithm = ActorCritic(2, 4)
-        elif algorithm == "ddrqn":
-            self.algorithm = DDRQN(2, 4)
-        elif algorithm == "ma_actor_critic":
-            self.algorithm = MAActorCritic(2, 4)
+        self.algorithm = QLearning(25, 4)
 
     #-------------------------------------------------------------------------------------------
     # Properties
@@ -118,6 +105,10 @@ class AgentInterface():
                     5. train algorithm with observation, next_observation, reward and done
                     6. next_observation become observation for next iteration
         """
+        all_rewards = []
+        low = np.array([0, 0])
+        high = np.array([4, 4])
+
         logging.info("Agent %i initialised", self.n)
 
         #agent n coroutine initialised agent can start 
@@ -129,29 +120,93 @@ class AgentInterface():
         #get init observation from agent
         obv = await self.queue.get()
         obv = obv.split(':')[1]
-        print(f'agent {self.n} obv = {obv}')
+        obv = self.msg_to_array(obv)
+        logging.debug("Agent %i obv = %s", self.n, obv)
 
-        while True:
-            action = 3 #algorithm.get_action(obv)
+        for e in range(100):
+            done = False
+            total_reward = 0
+    
+            for t in range(10000):
+                state = self.algorithm.index_obv(obv, low, high)
+                action = int(self.algorithm.get_action(state))
 
-            #wait for agent n status to be true    
-            await self.status_flag.wait()
+                #wait for agent n status to be true    
+                await self.status_flag.wait()
 
-            #send action to agent
-            await self.post_to_topic(f'/agents/{self.n}/action', action)
+                #send action to agent
+                await self.post_to_topic(f'/agents/{self.n}/action', action)
 
-            #get observation, reward and done from agent
-            for i in range(3):
-                q_item = await self.queue.get()
-                topic = q_item.split(':')[0]
-                payload = q_item.split(':')[1]
+                #get observation, reward and done from agent
+                for i in range(3):
+                    q_item = await self.queue.get()
+                    topic = q_item.split(':')[0]
+                    payload = q_item.split(':')[1]
 
-                #each may appear in queue in any order so must be processed into correct variable
-                if topic == f'/agents/{self.n}/obv': next_obv = payload
-                elif topic == f'/agents/{self.n}/reward': reward = payload
-                elif topic == f'/agents/{self.n}/done': done = payload
+                    #each may appear in queue in any order so must be processed into correct variable
+                    if topic == f'/agents/{self.n}/obv': next_obv = self.msg_to_array(payload)
+                    elif topic == f'/agents/{self.n}/reward': reward = float(payload)
+                    elif topic == f'/agents/{self.n}/done': done = True if payload == "True" else False 
 
-#            algorithm.train(obv, action, reward, next_obv) 
-            print(f'agent {self.n} next_obv = {next_obv}\nagent {self.n} reward = {reward}\nagent {self.n} done = {done}')
-            obv = next_obv
+                next_state = self.algorithm.index_obv(next_obv, low, high)
+                self.algorithm.train(state, action, reward, next_state) 
+
+                logging.debug("Agent %i next_obv = %s", self.n, next_obv)
+                logging.debug("Agent %i reward = %.4f", self.n, reward)
+                logging.debug("Agent %i done = %s", self.n, done)
+                
+                obv = next_obv
+                total_reward += reward
+
+                if done:
+                    logging.info(f'Episode {e} completed with total reward: {total_reward}')
+                    all_rewards.append(total_reward)
+                    break
+
+                if t >= 9999:
+                    logging.info(f'Episode {e} timed out with total reward: {total_reward}')
+                    all_rewards.append(total_reward)
+                    break;
+
+            self.algorithm.update_parameters(e)
+
+        self.save_data("saved_data/qlearning", {"reward": all_rewards})
+
+    def save_data(self, path: str, data: dict):
+        """
+            function to save data in a pickle file gathered during training in the directory at path
+            directory has the following structure:
+
+                -path
+                    -data.pkl
+
+            path is the path to the directory to store the data in
+
+            data is the data to be saved
+        """
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), path)
+
+        #make directory if not already exists
+        if not os.path.isdir(path):
+            os.makedirs(path)
+
+        #save parameters to pickle file
+        with open(f'{path}/data.pkl', "wb") as handle:
+            pickle.dump(data, handle, protocol=pickle.HIGHEST_PROTOCOL)
+
+    def msg_to_array(self, msg: str) -> np.ndarray:
+        """
+            function to convert a str (mqtt message) to an array
+
+            msg is the string to be converted to an array, must be a 1-dimensional array
+
+            returns the array
+        """
+        msg = msg.replace('[', '')
+        msg = msg.replace(']', '')
+
+        array = np.array(msg.split(' '), dtype=float)
+
+        return array
+
 
