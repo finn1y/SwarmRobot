@@ -47,6 +47,19 @@ nor are policy ensembles.
 Distributed Deep Recurrent Q-Network is implemented based on the changes to Deep Q-Networks suggested by Foerster et al in [[10]](#10) 
 for multi-agent environments. Due to the nature of this simulation instead of direct inter-agent weight sharing (i.e. directly tying all network weights) agents share weights via communication each updating the their network parameters in turn and then communicating the updated weights to the next agent until all agents have performed their updates. 
 
+### Algoithm I/O
+
+Algorithm   | State space       | Action space
+------------|-------------------|--------------
+Q-Learning  |   Discrete        | Discrete
+DQN         |Continuous/Discrete| Discrete 
+DRQN        |Continuous/Discrete| Discrete
+PG          |Continuous/Discrete| Discrete
+A2C         |Continuous/Discrete| Discrete
+DDPG        |Continuous/Discrete| Continuous
+MAAC        |Continuous/Discrete| Discrete
+DDRQN       |Continuous/Discrete| Discrete
+
 ## References
 
 <a id="1">[1]</a> 
