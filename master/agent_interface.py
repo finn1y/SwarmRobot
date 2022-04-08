@@ -25,8 +25,6 @@ class AgentInterface():
         """
             init for agent class
 
-            algorithm is a string with the name of the RL algorithm to use
-
             client is the MQTT client used to connect to the broker
 
             n is the index number of this agent
