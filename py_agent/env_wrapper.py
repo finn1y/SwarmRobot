@@ -246,7 +246,7 @@ async def main():
                 tasks.add(task)
 
                 #small sleep between starting agent tasks to help prevent agents getting same index
-                await asyncio.sleep(2)
+                await asyncio.sleep(3)
             
             #array of start flags of each agent
             start_flag = [a.start_flag for a in agent]
