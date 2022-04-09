@@ -157,14 +157,14 @@ class AgentInterface():
                 total_reward += reward
 
                 if done:
-                    logging.info(f'Episode {e} completed with total reward: {total_reward}')
+                    logging.info(f'Agent {self.n}, completed episode {e} with total reward: {total_reward}')
                     all_rewards.append(total_reward)
                     break
 
                 if t >= 9999:
-                    logging.info(f'Episode {e} timed out with total reward: {total_reward}')
+                    logging.info(f'Agent {self.n} timed out episode {e} with total reward: {total_reward}')
                     all_rewards.append(total_reward)
-                    break;
+                    break
 
             self.algorithm.update_parameters(e)
 

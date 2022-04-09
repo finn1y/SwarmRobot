@@ -112,6 +112,8 @@ async def env_loop_multi_agent(env, queues, start_flags, obv_flags, action_flags
             logging.debug("Reward: %s", rewards)
             logging.debug("Done: %s", done)
 
+            total_rewards += rewards
+
             for i in range(args.agents):
                 #put obv, reward and done in env queue
                 await queues[i].put(obvs[i])
@@ -123,12 +125,12 @@ async def env_loop_multi_agent(env, queues, start_flags, obv_flags, action_flags
 
             #episode complete if done or reached maximum time steps
             if done:
-                logging.info(f'Episode {e} completed with reward: {total_reward}')
+                logging.info(f'Episode {e} completed with reward: {total_rewards}')
                 break
 
             if t >= 9999:
-                logging.info(f'Episode {e} timed out with reward: {total_reward}')
-                break;
+                logging.info(f'Episode {e} timed out with reward: {total_rewards}')
+                break
         
 async def env_loop(env, queue, start_flag, obv_flag, action_flag, reward_flag, done_flag):
     """
@@ -185,6 +187,8 @@ async def env_loop(env, queue, start_flag, obv_flag, action_flag, reward_flag, d
             logging.debug("Observation: %s", obv)
             logging.debug("Reward: %i", reward)
             logging.debug("Done: %s", done)
+
+            total_reward += reward
 
             #put obv, reward and done in env queue
             await queue.put(obv)
