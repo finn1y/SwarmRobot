@@ -203,7 +203,7 @@ void app_main() {
                     if (dist_front <= 200) {
                         ESP_LOGI(MOTOR_DRIVER_TAG, "Object detected ahead %.2fmm away, not performing action 'move forward' preventing collision", dist_front);
 
-                        reward = -50;
+                        reward = -2;
                     } else {
                         //move forward
                         move_forward(200);
