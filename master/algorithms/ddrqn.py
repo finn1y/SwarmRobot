@@ -214,13 +214,10 @@ class DDRQN(DQN):
         #calculate expected reward
         target = reward + self.gamma * np.max(target)
 
-        #one hot encoding of action to apply to Q-values
-        action_mask = np.eye(self.n_actions)[action.reshape(-1)]
-
         with tf.GradientTape() as tape:
             values = self.q_net(np.expand_dims(obv, axis=(0, 1)))
             #calculate Q-values based on action taken for each step
-            value = tf.reduce_sum(values * action_mask)
+            value = tf.reduce_sum(values[0, action])
             loss = self.loss_fn([target], [value])
 
         grads = tape.gradient(loss, self.q_net.trainable_variables)
