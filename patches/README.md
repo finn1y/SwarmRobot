@@ -1,6 +1,6 @@
 # Dependency Patches
 
-This directory contains patches for dependencies of the RL training environment
+This directory contains patches for dependencies
 
 ## Applying Patches
 
@@ -31,11 +31,7 @@ To view what the patch changes either by looking in the `.patch` file or by usin
 1. Converts the gym-maze environment created by "MattChanTK" into a multi-agent environment by taking in arrays of actions, processing actions for each robot and outputting the rewards and states as arrays.
 2. Removes maximum number of steps from the environment
 3. Fixes minor issue when int passed as action but error raised during processing
-
-#### [Advanced Multi Agent Patch](gym_maze_advanced_multi_agent.patch)
-
-1. Improves upon previous patch by making env check whether it is used as single agent or multi-agent
-2. Will have same functionality as previously for multi-agent use
+4. Env checks whether it is used as single agent or multi-agent
 3. For single agent use does not require or output actions, states etc. inside arrays
 
 
