@@ -14,9 +14,25 @@ git clone https://github.com/finn1y/RLTraingingEnv
 cd SwarmRobot
 pip install -r requirements.txt
 ```
-3. Follow instructions to install on [robot](c_agent)
-4. Run master on this machine
+3. Apply dependency patches, described in [patches](patches/README.md)
+4. Follow [instructions](c_agent/README.md) to download and install on real robot
+
+### Run in simulation
+
+1. Run master on this machine
 ```
-./master.py
+./master/master.py
 ```
-5. Run robot in physical maze
+2. Run agent in a separate terminal (or in parallel with master) via env wrapper
+```
+./py_agent/env_wrapper.py
+```
+
+### Run on real robot
+
+1. Run master on this machine
+```
+./master/master.py
+```
+2. Run real robot in real env
+
