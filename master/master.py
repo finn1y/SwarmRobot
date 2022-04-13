@@ -15,6 +15,7 @@ import logging
 from dotenv import load_dotenv
 from contextlib import AsyncExitStack, asynccontextmanager
 from asyncio_mqtt import Client, Will, MqttError
+from gym_robot_maze import Maze
 from agent_interface import AgentInterface
 
 #-----------------------------------------------------------------------------------------------------------
@@ -29,6 +30,7 @@ def get_args():
     """
     parser = argparse.ArgumentParser()
 
+    parser.add_argument("--simulation", "-s", action="store_true", help="Flag to set if agent is simulated")
     parser.add_argument("--verbose", "-v", action="count", default=0, help="Increase verbosity level")
 
     return parser.parse_args()
@@ -50,7 +52,7 @@ async def post_to_topic(client, topic, msg, retain=False):
     await client.publish(topic, msg, qos=1, retain=retain)
     await asyncio.sleep(2)
 
-async def n_agents_manager(stack, tasks, client, msgs):
+async def n_agents_manager(stack, tasks, client, msgs, done_flag, reset_flag):
     """
         coroutine to manage the number of agents connected to the client
 
@@ -76,7 +78,7 @@ async def n_agents_manager(stack, tasks, client, msgs):
             await post_to_topic(client, "/agents/index", agents_i)
 
             #init agent n
-            agent = AgentInterface(client, agents_i)
+            agent = AgentInterface(client, agents_i, sim=args.simulation)
             agents.append(agent)
 
             receive_topics = (f'/agents/{agents_i}/obv', f'/agents/{agents_i}/reward', f'/agents/{agents_i}/done')
@@ -95,7 +97,7 @@ async def n_agents_manager(stack, tasks, client, msgs):
             #subscribe to agent n's topics
             await client.subscribe(f'/agents/{agents_i}/#')
 
-            task = asyncio.create_task(agent.run())
+            task = asyncio.create_task(agent.run(done_flag, reset_flag))
             tasks.add(task)
 
             agents_i += 1
@@ -105,6 +107,18 @@ async def n_agents_manager(stack, tasks, client, msgs):
             #remove agent
             agents_i -= 1
             logging.info("Agent removed, number of agents = %i", agents_i)
+
+async def wait_for_reset(done_flag, reset_flag):
+    """
+        coroutine to pause program while robots are reset in real environment
+    """
+    while True:
+        await done_flag.wait()
+        done_flag.clear()
+        
+        logging.info("Episode done, reset robots in real env")
+        input("Press any key to continue...")
+        reset_flag.set()
 
 async def cancel_tasks(tasks):
     """
@@ -137,6 +151,9 @@ async def main():
         client = Client(MQTT_HOST, port=8883, username=MQTT_USERNAME, password=MQTT_PASSWORD, tls_context=ssl.create_default_context(), will=Will("/master/status", 0, retain=True))
         await stack.enter_async_context(client)
 
+        done_flag = asyncio.Event()
+        reset_flag = asyncio.Event()
+
         #post to init topics
         task = asyncio.create_task(post_to_topic(client, "/master/status", 1, retain=True))
         tasks.add(task)
@@ -144,11 +161,16 @@ async def main():
         #start logger for adding/removing agents from system
         manager = client.filtered_messages(("/agents/add"))
         msgs = await stack.enter_async_context(manager)
-        task = asyncio.create_task(n_agents_manager(stack, tasks, client, msgs))
+        task = asyncio.create_task(n_agents_manager(stack, tasks, client, msgs, done_flag, reset_flag))
         tasks.add(task)
 
         #subscribe to topic for adding/removing agents from system
         await client.subscribe("/agents/add")
+
+        #only require wait for env reset if real env used, i.e. not simulation
+        if not args.simulation:
+            task = asyncio.create_task(wait_for_reset(done_flag, reset_flag))
+            tasks.add(task)
 
         await asyncio.gather(*tasks)
 

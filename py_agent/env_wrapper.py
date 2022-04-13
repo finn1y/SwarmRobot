@@ -16,6 +16,7 @@ import gym_maze
 import numpy as np
 
 from contextlib import AsyncExitStack, asynccontextmanager
+from gym_robot_maze import Maze
 
 from agent import sim_agent
 
@@ -205,7 +206,7 @@ async def env_loop(env, queue, start_flag, obv_flag, action_flag, reward_flag, d
 
 async def main():
     #init env
-    env = gym.make("maze-sample-5x5-v0", enable_render=args.render, n_robots=args.agents)
+    env = gym.make("gym_robot_maze:RobotMaze-v1", is_render=args.render, n_agents=args.agents, load_maze_path="./4x4_maze/")
     
     async with AsyncExitStack() as stack:
         #init index flag to prevent agents getting same index

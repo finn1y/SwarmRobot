@@ -162,7 +162,7 @@ void turn_left(float angle) {
 void turn_right(float angle) {
     //angle in rads
     //calculate time to run motor for
-    uint64_t time = (angle / linear_vel) * 1e6; //time in us 
+    uint64_t time = (angle / angular_vel) * 1e6; //time in us 
 
     motor_alarm_conf.alarm_count = time;
     gptimer_set_alarm_action(motor_tmr, &motor_alarm_conf);

@@ -7,8 +7,10 @@
 import asyncio
 import logging
 import numpy as np
+import gym
 
 from asyncio_mqtt import Client
+from gym_robot_maze import Maze
 
 from algorithms import *
 
@@ -21,7 +23,7 @@ class AgentInterface():
         class to contain agent variables including: RL algorithm object, index, message queue 
         and a status flag for master status and agent coroutines
     """
-    def __init__(self, client: Client, n: int):
+    def __init__(self, client: Client, n: int, sim: bool=True):
         """
             init for agent class
 
@@ -30,13 +32,18 @@ class AgentInterface():
             client is the MQTT client used to connect to the broker
 
             n is the index number of this agent
+
+            sim is True if the agent is simulated, False is the agent is a real robot
         """
         self.client = client
         self.queue = asyncio.Queue()
         self.status_flag = asyncio.Event()
         self._n = n
+        self.sim = sim
 
-        self.algorithm = QLearning(25, 4)
+        self.batch_size = 32
+
+        self.algorithm = DQN(1, 4, batch_size=self.batch_size)
 
     #-------------------------------------------------------------------------------------------
     # Properties
@@ -95,7 +102,7 @@ class AgentInterface():
             q_item = f'{topic}:{payload}'
             await self.queue.put(q_item)
 
-    async def run(self):
+    async def run(self, done_flag, reset_flag):
         """
             coroutine to run the primary functions of this agent:
                 1. receive and process init obvservation
@@ -105,9 +112,11 @@ class AgentInterface():
                     5. train algorithm with observation, next_observation, reward and done
                     6. next_observation become observation for next iteration
         """
+        if not self.sim:
+            #if real robot use gym env to track robot position in maze
+            env = gym.make("gym_robot_maze:RobotMaze-v1", is_render=False, n_agents=1, load_maze_path="./4x4_maze/")
+
         all_rewards = []
-        low = np.array([0, 0])
-        high = np.array([4, 4])
 
         logging.info("Agent %i initialised", self.n)
 
@@ -124,12 +133,17 @@ class AgentInterface():
         logging.debug("Agent %i obv = %s", self.n, obv)
 
         for e in range(100):
+            if not self.sim:
+                env.reset()
+    
             done = False
             total_reward = 0
     
             for t in range(10000):
-                state = self.algorithm.index_obv(obv, low, high)
-                action = int(self.algorithm.get_action(state))
+                action = int(self.algorithm.get_action(obv))
+
+                if not self.sim:
+                    _, _, done, _ = env.step(action) 
 
                 #wait for agent n status to be true    
                 await self.status_flag.wait()
@@ -146,10 +160,10 @@ class AgentInterface():
                     #each may appear in queue in any order so must be processed into correct variable
                     if topic == f'/agents/{self.n}/obv': next_obv = self.msg_to_array(payload)
                     elif topic == f'/agents/{self.n}/reward': reward = float(payload)
-                    elif topic == f'/agents/{self.n}/done': done = True if payload == "True" else False 
+                    elif topic == f'/agents/{self.n}/done' and self.sim: done = True if payload == "True" else False 
 
-                next_state = self.algorithm.index_obv(next_obv, low, high)
-                self.algorithm.train(state, action, reward, next_state) 
+                self.algorithm.reward_mem.append(reward)
+                self.algorithm.next_obv_mem.append(next_obv)
 
                 logging.debug("Agent %i next_obv = %s", self.n, next_obv)
                 logging.debug("Agent %i reward = %.4f", self.n, reward)
@@ -161,16 +175,36 @@ class AgentInterface():
                 if done:
                     logging.info(f'Episode {e} completed with total reward: {total_reward}')
                     all_rewards.append(total_reward)
+                    
+                    #if real robot set flag for real env to be reset
+                    if not self.sim:
+                        done_flag.set()
+                        #wait for user input to show real env is reset
+                        await reset_flag.wait()
+                        reset_flag.clear()
+                    
                     break
 
                 if t >= 9999:
                     logging.info(f'Episode {e} timed out with total reward: {total_reward}')
                     all_rewards.append(total_reward)
-                    break;
+                    
+                    if not self.sim:
+                        self.done_flag.set()
+                        await reset_flag.wait()
+                        reset_flag.clear()
+                
+                    break
+
+                if np.size(self.algorithm.action_mem) > self.batch_size and t % 4 == 0:
+                    loss = self.algorithm.train() 
+
+                    if t % 20 == 0:
+                        self.algorithm.update_target_net()
 
             self.algorithm.update_parameters(e)
 
-        self.save_data("saved_data/qlearning", {"reward": all_rewards})
+        self.save_data("saved_data/dqn", {"reward": all_rewards})
 
     def save_data(self, path: str, data: dict):
         """

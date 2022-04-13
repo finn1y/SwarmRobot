@@ -13,6 +13,7 @@ google-pasta==0.2.0
 grpcio==1.44.0
 gym==0.23.1
 -e git+https://github.com/MattChanTK/gym-maze.git@83176811b49b5538a6213520612f44fb1bc49114#egg=gym_maze
+-e git+https://github.com/finn1y/gym-robot-maze.git@69f84f757f23c30ab3a1b9d83eb6b5736cddf3ae#egg=gym_robot_maze
 gym-notices==0.0.6
 h5py==3.6.0
 idna==3.3
