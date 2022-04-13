@@ -37,5 +37,9 @@ MANIFEST
 build/
 sdkconfig*
 
-# Test Generated files
+# Generated files
 logs/
+saved_data/
+
+# Maze maps
+*maze*

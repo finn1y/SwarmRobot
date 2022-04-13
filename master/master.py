@@ -52,7 +52,7 @@ async def post_to_topic(client, topic, msg, retain=False):
     await client.publish(topic, msg, qos=1, retain=retain)
     await asyncio.sleep(2)
 
-async def n_agents_manager(stack, tasks, client, msgs, done_flag, reset_flag):
+async def n_agents_manager(stack, tasks, client, msgs, done_flag, reset_flag, agents):
     """
         coroutine to manage the number of agents connected to the client
 
@@ -66,7 +66,6 @@ async def n_agents_manager(stack, tasks, client, msgs, done_flag, reset_flag):
     """
     #init agent index to 0
     agents_i = 0
-    agents = list()
 
     async for msg in msgs:
         payload = int(msg.payload.decode())
@@ -108,7 +107,7 @@ async def n_agents_manager(stack, tasks, client, msgs, done_flag, reset_flag):
             agents_i -= 1
             logging.info("Agent removed, number of agents = %i", agents_i)
 
-async def wait_for_reset(done_flag, reset_flag):
+async def wait_for_reset(done_flag, reset_flag, agents):
     """
         coroutine to pause program while robots are reset in real environment
     """
@@ -116,7 +115,7 @@ async def wait_for_reset(done_flag, reset_flag):
         await done_flag.wait()
         done_flag.clear()
         
-        logging.info("Episode done, reset robots in real env")
+        logging.info("Episode done, with rewards = {[agent.total_reward for agent in agents]} reset robots in real env")
         input("Press any key to continue...")
         reset_flag.set()
 
@@ -153,6 +152,7 @@ async def main():
 
         done_flag = asyncio.Event()
         reset_flag = asyncio.Event()
+        agents = []
 
         #post to init topics
         task = asyncio.create_task(post_to_topic(client, "/master/status", 1, retain=True))
@@ -161,7 +161,7 @@ async def main():
         #start logger for adding/removing agents from system
         manager = client.filtered_messages(("/agents/add"))
         msgs = await stack.enter_async_context(manager)
-        task = asyncio.create_task(n_agents_manager(stack, tasks, client, msgs, done_flag, reset_flag))
+        task = asyncio.create_task(n_agents_manager(stack, tasks, client, msgs, done_flag, reset_flag, agents))
         tasks.add(task)
 
         #subscribe to topic for adding/removing agents from system
@@ -169,7 +169,7 @@ async def main():
 
         #only require wait for env reset if real env used, i.e. not simulation
         if not args.simulation:
-            task = asyncio.create_task(wait_for_reset(done_flag, reset_flag))
+            task = asyncio.create_task(wait_for_reset(done_flag, reset_flag, agents))
             tasks.add(task)
 
         await asyncio.gather(*tasks)

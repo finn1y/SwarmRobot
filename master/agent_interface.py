@@ -137,7 +137,7 @@ class AgentInterface():
                 env.reset()
     
             done = False
-            total_reward = 0
+            self.total_reward = 0
     
             for t in range(10000):
                 action = int(self.algorithm.get_action(obv))
@@ -170,11 +170,11 @@ class AgentInterface():
                 logging.debug("Agent %i done = %s", self.n, done)
                 
                 obv = next_obv
-                total_reward += reward
+                self.total_reward += reward
 
                 if done:
-                    logging.info(f'Episode {e} completed with total reward: {total_reward}')
-                    all_rewards.append(total_reward)
+                    logging.info(f'Agent {self.n } completed episode {e} with total reward: {total_reward}')
+                    all_rewards.append(self.total_reward)
                     
                     #if real robot set flag for real env to be reset
                     if not self.sim:
@@ -186,8 +186,8 @@ class AgentInterface():
                     break
 
                 if t >= 9999:
-                    logging.info(f'Episode {e} timed out with total reward: {total_reward}')
-                    all_rewards.append(total_reward)
+                    logging.info(f'Agent {self.n} timed out episode {e} with total reward: {total_reward}')
+                    all_rewards.append(self.total_reward)
                     
                     if not self.sim:
                         self.done_flag.set()
