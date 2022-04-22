@@ -34,7 +34,7 @@ class AgentInterface():
         self.status_flag = asyncio.Event()
         self._n = n
 
-        self.algorithm = QLearning(25, 4)
+        self.algorithm = QLearning(25, 4, gamma=0.99, epsilon_max=1.0, epsilon_min=0.1, lr=0.7, decay=0.999)
 
     #-------------------------------------------------------------------------------------------
     # Properties
