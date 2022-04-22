@@ -77,8 +77,13 @@ async def n_agents_manager(stack, tasks, client, msgs, done_flag, reset_flag, ag
             await post_to_topic(client, "/agents/index", agents_i)
 
             #init agent n
-            agent = AgentInterface(client, agents_i, sim=args.simulation)
+            agent = AgentInterface(client, agents_i, "ddrqn", sim=args.simulation)
             agents.append(agent)
+
+            if agents_i == 0:
+                agents[agents_i].train_flag.set()
+            else:
+                agents[agents_i].train_flag.clear()
 
             receive_topics = (f'/agents/{agents_i}/obv', f'/agents/{agents_i}/reward', f'/agents/{agents_i}/done')
             #start tasks to process messages received from agent n
@@ -96,7 +101,7 @@ async def n_agents_manager(stack, tasks, client, msgs, done_flag, reset_flag, ag
             #subscribe to agent n's topics
             await client.subscribe(f'/agents/{agents_i}/#')
 
-            task = asyncio.create_task(agent.run(done_flag, reset_flag))
+            task = asyncio.create_task(agent.run(done_flag, reset_flag, agents))
             tasks.add(task)
 
             agents_i += 1
@@ -115,7 +120,7 @@ async def wait_for_reset(done_flag, reset_flag, agents):
         await done_flag.wait()
         done_flag.clear()
         
-        logging.info("Episode done, with rewards = {[agent.total_reward for agent in agents]} reset robots in real env")
+        logging.info("Episode done, with rewards = %s reset robots in real env", [agent.total_reward for agent in agents])
         input("Press any key to continue...")
         reset_flag.set()
 

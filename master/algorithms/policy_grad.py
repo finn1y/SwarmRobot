@@ -7,6 +7,7 @@
 import numpy as np
 import tensorflow as tf
 import logging
+import time
 
 from algorithms.rl_algorithm import RLAlgorithm
 
@@ -14,7 +15,7 @@ from algorithms.rl_algorithm import RLAlgorithm
 # Functions
 #-----------------------------------------------------------------------------------------------
 
-def run_gym_policy_grad_multi_agent(env, n_agents: int=1, render: bool=False, episodes: int=100, time_steps: int=10000):
+def run_gym_policy_grad_multi_agent(env, n_agents: int=1, render: bool=False, episodes: int=100, time_steps: int=10000, hidden_size: int=128, gamma: float=0.99, lr: float=0.001, decay: float=0.999, lr_decay_steps: int=10000, saved_path: str=None):
     """
         function to run independent policy gradient algorithm on a gym env
 
@@ -28,7 +29,7 @@ def run_gym_policy_grad_multi_agent(env, n_agents: int=1, render: bool=False, ep
 
         time steps is the maximum number of time steps per episode
 
-        returns obvs, actions, rewards and losses of all agents
+        returns obvs, actions, rewards and losses of all agents and time of each epsiode in seconds
     """
     if n_agents < 1:
         raise ValueError("Cannot have less than 1 agent.")
@@ -39,13 +40,17 @@ def run_gym_policy_grad_multi_agent(env, n_agents: int=1, render: bool=False, ep
     n_actions = env.action_space.n #number of actions
     n_obvs = np.squeeze(env.observation_space.shape)
 
-    agents = [PolicyGradient(n_obvs, n_actions) for i in range(n_agents)]
+    agents = [PolicyGradient(n_obvs, n_actions, hidden_size=hidden_size, gamma=gamma, lr=lr, decay=decay, lr_decay_steps=lr_decay_steps, saved_path=saved_path) for i in range(n_agents)]
 
     #init arrays to collect data
+    all_times = []
     all_obvs = []
     all_actions = []
     all_rewards = []
     all_losses = []
+
+    #robot-maze env can save the path taken by the agents each episode
+    robot_paths = []
 
     #render env if enabled
     if render:
@@ -54,6 +59,7 @@ def run_gym_policy_grad_multi_agent(env, n_agents: int=1, render: bool=False, ep
     for e in range(episodes): 
         obvs = env.reset()
         
+        start_time = time.time()
         ep_obvs = []
         ep_actions = []
         ep_losses = []
@@ -83,17 +89,29 @@ def run_gym_policy_grad_multi_agent(env, n_agents: int=1, render: bool=False, ep
             if done:
                 logging.info("Episode %u completed, after %u time steps, with total reward = %s", e, t, str(total_rewards))
 
+                ep_time = round((time.time() - start_time), 3)
+                all_times.append(ep_time)
                 all_obvs.append(ep_obvs)
                 all_actions.append(ep_actions)
                 all_rewards.append(total_rewards)
+
+                if env.unwrapped.spec.id[0:13] == "gym_robot_maze":
+                    robot_paths.append(info["robot_path"])
+
                 break
 
             elif t >= (time_steps - 1):
                 logging.info("Episode %u timed out, with total reward = %s", e, str(total_rewards))
     
+                ep_time = round((time.time() - start_time), 3)
+                all_times.append(ep_time)
                 all_obvs.append(ep_obvs)
                 all_actions.append(ep_actions)
                 all_rewards.append(total_rewards)
+
+                if env.unwrapped.spec.id[0:13] == "gym_robot_maze":
+                    robot_paths.append(info["robot_path"])
+
                 break
 
             if env.unwrapped.spec.id[0:5] == "maze-" and env.is_game_over():
@@ -104,9 +122,9 @@ def run_gym_policy_grad_multi_agent(env, n_agents: int=1, render: bool=False, ep
             ep_losses.append(loss)
             all_losses.append(ep_losses)
 
-    return all_obvs, all_actions, all_rewards, all_losses
+    return all_obvs, all_actions, all_rewards, all_losses, robot_paths, all_times
 
-def run_gym_policy_grad_single_agent(env, render: bool=False, episodes: int=100, time_steps: int=10000):
+def run_gym_policy_grad_single_agent(env, render: bool=False, episodes: int=100, time_steps: int=10000, hidden_size: int=128, gamma: float=0.99, lr: float=0.001, decay: float=0.999, lr_decay_steps: int=10000, saved_path: str=None):
     """
         function to run policy gradient algorithm on a gym env
 
@@ -120,19 +138,23 @@ def run_gym_policy_grad_single_agent(env, render: bool=False, episodes: int=100,
 
         time steps is the maximum number of time steps per episode
 
-        returns obvs, actions, rewards and losses of all agents
+        returns obvs, actions, rewards and losses of all agents and time of each epsiode in seconds
     """
     #get env variables
     n_actions = env.action_space.n #number of actions
     n_obvs = np.squeeze(env.observation_space.shape)
 
-    agent = PolicyGradient(n_obvs, n_actions)
+    agent = PolicyGradient(n_obvs, n_actions, hidden_size=hidden_size, gamma=gamma, lr=lr, decay=decay, lr_decay_steps=lr_decay_steps, saved_path=saved_path)
 
     #init arrays to collect data
+    all_times = []
     all_obvs = []
     all_actions = []
     all_rewards = []
     all_losses = []
+
+    #robot-maze env can save the path taken by the agents each episode
+    robot_paths = []
 
     #render env if enabled
     if render:
@@ -141,6 +163,7 @@ def run_gym_policy_grad_single_agent(env, render: bool=False, episodes: int=100,
     for e in range(episodes): 
         obv = env.reset()
 
+        start_time = time.time()
         ep_obvs = []
         ep_actions = []
         total_reward = 0
@@ -165,17 +188,29 @@ def run_gym_policy_grad_single_agent(env, render: bool=False, episodes: int=100,
             if done:
                 logging.info("Episode %u completed, after %u time steps, with total reward = %f", e, t, total_reward)
 
+                ep_time = round((time.time() - start_time), 3)
+                all_times.append(ep_time)
                 all_obvs.append(ep_obvs)
                 all_actions.append(ep_actions)
                 all_rewards.append(total_reward)
+
+                if env.unwrapped.spec.id[0:13] == "gym_robot_maze":
+                    robot_paths.append(info["robot_path"])
+
                 break
 
             elif t >= (time_steps - 1):
                 logging.info("Episode %u timed out, with total reward = %f", e, total_reward)
 
+                ep_time = round((time.time() - start_time), 3)
+                all_times.append(ep_time)
                 all_obvs.append(ep_obvs)
                 all_actions.append(ep_actions)
                 all_rewards.append(total_reward)
+
+                if env.unwrapped.spec.id[0:13] == "gym_robot_maze":
+                    robot_paths.append(info["robot_path"])
+
                 break
 
             if env.unwrapped.spec.id[0:5] == "maze-" and env.is_game_over():
@@ -184,7 +219,7 @@ def run_gym_policy_grad_single_agent(env, render: bool=False, episodes: int=100,
         loss = agent.train()
         all_losses.append(loss)
 
-    return all_obvs, all_actions, all_rewards, all_losses
+    return all_obvs, all_actions, all_rewards, all_losses, robot_paths, all_times
 
 #-----------------------------------------------------------------------------------------------    
 # Classes
@@ -194,7 +229,7 @@ class PolicyGradient(RLAlgorithm):
     """
         Class to contain the PolicyNetwork and all parameters with methods to train network and get actions
     """
-    def __init__(self, n_obvs: int, n_actions: int, hidden_size: int=128, gamma=0.99, lr=0.001, decay=0.999, lr_decay_steps=10000, saved_path=None):
+    def __init__(self, n_obvs: int, n_actions: int, hidden_size: int=128, gamma: float=0.99, lr: float=0.001, decay: float=0.999, lr_decay_steps: int=10000, saved_path: str=None):
         """
             function to initialise the class
 
@@ -230,16 +265,11 @@ class PolicyGradient(RLAlgorithm):
         self.policy_net = tf.keras.Model(inputs=inputs, outputs=action)
 
         self.lr_decay_fn = tf.keras.optimizers.schedules.ExponentialDecay(self.lr, decay_steps=lr_decay_steps, decay_rate=self.decay)
-        self.opt = tf.keras.optimizers.Adam(learning_rate=self.lr_decay_fn) #Adam optimiser is...
-
-        inputs = tf.keras.layers.Input(shape=(n_obvs,))
-        common = tf.keras.layers.Dense(hidden_size, activation="relu")(inputs)
-        action = tf.keras.layers.Dense(n_actions, activation="softmax")(common)
-        self.policy_net = tf.keras.Model(inputs=inputs, outputs=action)
+        self.opt = tf.keras.optimizers.Adam(learning_rate=self.lr_decay_fn)
 
         #load a saved model (neural net) if provided
         if saved_path:
-            self.policy_net = tf.keras.models.load_model(saved_path, custom_object={"CustomModel": PolicyNet})
+            self.policy_net = tf.keras.models.load_model(saved_path)
 
     #-------------------------------------------------------------------------------------------
     # Properties

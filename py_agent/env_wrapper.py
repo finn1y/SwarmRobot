@@ -205,8 +205,11 @@ async def env_loop(env, queue, start_flag, obv_flag, action_flag, reward_flag, d
                 break;
 
 async def main():
+    #get maze path
+    maze_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "4x4_maze")
+
     #init env
-    env = gym.make("gym_robot_maze:RobotMaze-v1", is_render=args.render, n_agents=args.agents, load_maze_path="./4x4_maze/")
+    env = gym.make("gym_robot_maze:RobotMaze-v1", is_render=args.render, n_agents=args.agents, load_maze_path=maze_path)
     
     async with AsyncExitStack() as stack:
         #init index flag to prevent agents getting same index

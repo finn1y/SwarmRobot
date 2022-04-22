@@ -7,6 +7,7 @@
 import numpy as np
 import tensorflow as tf
 import logging
+import time
 
 from algorithms.rl_algorithm import RLAlgorithm
 
@@ -14,7 +15,7 @@ from algorithms.rl_algorithm import RLAlgorithm
 # Functions
 #-----------------------------------------------------------------------------------------------
 
-def run_gym_ma_actor_critic_multi_agent(env, n_agents: int=1, render: bool=False, episodes: int=100, time_steps: int=10000):
+def run_gym_ma_actor_critic_multi_agent(env, n_agents: int=1, render: bool=False, episodes: int=100, time_steps: int=10000, hidden_size: int=128, gamma: float=0.99, decay: float=0.9, lr: float=0.0001, lr_decay_steps: int=10000, saved_path: str=None):
     """
         function to run multi-agent actor critic algorithm on a gym env
 
@@ -28,7 +29,7 @@ def run_gym_ma_actor_critic_multi_agent(env, n_agents: int=1, render: bool=False
 
         time steps is the maximum number of time steps per episode
 
-        returns obvs, actions, rewards and losses of all agents
+        returns obvs, actions, rewards and losses of all agents and time of each epsiode in seconds
     """
     if n_agents < 1:
         raise ValueError("Cannot have less than 1 agent.")
@@ -39,14 +40,18 @@ def run_gym_ma_actor_critic_multi_agent(env, n_agents: int=1, render: bool=False
     n_actions = env.action_space.n #number of actions
     n_obvs = np.squeeze(env.observation_space.shape)
 
-    agents = [MAActorCritic(n_obvs, n_actions, master=True, n_agents=n_agents)]
-    agents.extend([MAActorCritic(n_obvs, n_actions, n_agents=n_agents) for i in range(n_agents - 1)])
+    agents = [MAActorCritic(n_obvs, n_actions, hidden_size=hidden_size, gamma=gamma, decay=decay, lr=lr, lr_decay_steps=lr_decay_steps, n_agents=n_agents, master=True, saved_path=saved_path)]
+    agents.extend([MAActorCritic(n_obvs, n_actions, hidden_size=hidden_size, gamma=gamma, decay=decay, lr=lr, lr_decay_steps=lr_decay_steps, n_agents=n_agents, saved_path=saved_path) for i in range(n_agents - 1)])
 
     #init arrays to collect data
+    all_times = []
     all_obvs = []
     all_actions = []
     all_rewards = []
     all_losses = []
+
+    #robot-maze env can save the path taken by the agents each episode
+    robot_paths = []
 
     #render env if enabled
     if render:
@@ -55,6 +60,7 @@ def run_gym_ma_actor_critic_multi_agent(env, n_agents: int=1, render: bool=False
     for e in range(episodes): 
         obvs = env.reset()
         
+        start_time = time.time()
         ep_obvs = []
         ep_actions = []
         ep_losses = []
@@ -97,17 +103,29 @@ def run_gym_ma_actor_critic_multi_agent(env, n_agents: int=1, render: bool=False
             if done:
                 logging.info("Episode %u completed, after %u time steps, with total reward = %s", e, t, str(total_rewards))
 
+                ep_time = round((time.time() - start_time), 3)
+                all_times.append(ep_time)
                 all_obvs.append(ep_obvs)
                 all_actions.append(ep_actions)
                 all_rewards.append(total_rewards)
+
+                if env.unwrapped.spec.id[0:13] == "gym_robot_maze":
+                    robot_paths.append(info["robot_path"])
+
                 break
 
             elif t >= (time_steps - 1):
                 logging.info("Episode %u timed out, with total reward = %s", e, str(total_rewards))
 
+                ep_time = round((time.time() - start_time), 3)
+                all_times.append(ep_time)
                 all_obvs.append(ep_obvs)
                 all_actions.append(ep_actions)
                 all_rewards.append(total_rewards)
+
+                if env.unwrapped.spec.id[0:13] == "gym_robot_maze":
+                    robot_paths.append(info["robot_path"])
+
                 break
 
             if env.unwrapped.spec.id[0:5] == "maze-" and env.is_game_over():
@@ -127,7 +145,7 @@ def run_gym_ma_actor_critic_multi_agent(env, n_agents: int=1, render: bool=False
 
         all_losses.append(ep_losses)
 
-    return all_obvs, all_actions, all_rewards, all_losses
+    return all_obvs, all_actions, all_rewards, all_losses, robot_paths, all_times
 
 #-----------------------------------------------------------------------------------------------    
 # Classes
@@ -180,22 +198,22 @@ class MAActorCritic(RLAlgorithm):
         self.actor_net = tf.keras.Model(inputs=inputs, outputs=actor)
 
         self.lr_decay_fn = tf.keras.optimizers.schedules.ExponentialDecay(self.lr, decay_steps=lr_decay_steps, decay_rate=self.decay)
-        self.a_opt = tf.keras.optimizers.Adam(learning_rate=self.lr_decay_fn) #Adam optimiser is...
+        self.a_opt = tf.keras.optimizers.Adam(learning_rate=self.lr_decay_fn)
 
         if self.master:
             #only master contains the global critic net
             critic = tf.keras.layers.Dense(1, activation="linear")(common)
             self.critic_net = tf.keras.Model(inputs=inputs, outputs=critic)
 
-            self.c_opt = tf.keras.optimizers.Adam(learning_rate=self.lr_decay_fn) #Adam optimiser is...
-            self.loss_fn = tf.keras.losses.Huber() #Huber loss is...
+            self.c_opt = tf.keras.optimizers.Adam(learning_rate=self.lr_decay_fn)
+            self.loss_fn = tf.keras.losses.Huber()
 
         #load a saved model (neural net) if provided
         if saved_path:
-            self.actor_net = tf.keras.models.load_model(f'{saved_path}/actor')#, custom_object={"CustomModel": ActorNet})
+            self.actor_net = tf.keras.models.load_model(f'{saved_path}/actor')
 
             if self.master:
-                self.critic_net = tf.keras.models.load_model(f'{saved_path}/critic')#, custom_object={"CustomModel": CriticNet})
+                self.critic_net = tf.keras.models.load_model(f'{saved_path}/critic')
 
     #-------------------------------------------------------------------------------------------
     # Properties

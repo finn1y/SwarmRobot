@@ -23,7 +23,7 @@ class AgentInterface():
         class to contain agent variables including: RL algorithm object, index, message queue 
         and a status flag for master status and agent coroutines
     """
-    def __init__(self, client: Client, n: int, sim: bool=True):
+    def __init__(self, client: Client, n: int, algorithm: str, sim: bool=True):
         """
             init for agent class
 
@@ -38,20 +38,45 @@ class AgentInterface():
         self.client = client
         self.queue = asyncio.Queue()
         self.status_flag = asyncio.Event()
+        self._train_flag = asyncio.Event()
         self._n = n
-        self.sim = sim
+        self._sim = sim
+        self.total_reward = 0.0
 
         self.batch_size = 32
 
-        self.algorithm = DQN(1, 4, batch_size=self.batch_size)
+        self.alg_name = algorithm
+
+        if self.alg_name == "dqn":
+            self.algorithm = DQN(3, 4, batch_size=self.batch_size)
+        elif self.alg_name == "ddrqn":
+            self.algorithm = DDRQN(3, 4)
 
     #-------------------------------------------------------------------------------------------
     # Properties
     #-------------------------------------------------------------------------------------------
 
     @property
+    def train_flag(self) -> asyncio.Event:
+        return self._train_flag
+
+    @property
     def n(self) -> int:
         return self._n
+
+    @property
+    def sim(self) -> bool:
+        return self._sim
+
+    @property
+    def total_reward(self) -> float:
+        return self._total_reward
+
+    @total_reward.setter
+    def total_reward(self, val: float):
+        if not isinstance(val, float):
+            raise TypeError("Total reward must be a float.")
+        self._total_reward = val
 
     #-------------------------------------------------------------------------------------------
     # Methods
@@ -102,7 +127,7 @@ class AgentInterface():
             q_item = f'{topic}:{payload}'
             await self.queue.put(q_item)
 
-    async def run(self, done_flag, reset_flag):
+    async def run(self, done_flag, reset_flag, agents):
         """
             coroutine to run the primary functions of this agent:
                 1. receive and process init obvservation
@@ -113,8 +138,10 @@ class AgentInterface():
                     6. next_observation become observation for next iteration
         """
         if not self.sim:
+            #get maze path
+            maze_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "4x4_maze")
             #if real robot use gym env to track robot position in maze
-            env = gym.make("gym_robot_maze:RobotMaze-v1", is_render=False, n_agents=1, load_maze_path="./4x4_maze/")
+            env = gym.make("gym_robot_maze:RobotMaze-v1", is_render=False, n_agents=1, load_maze_path=maze_path)
 
         all_rewards = []
 
@@ -137,7 +164,7 @@ class AgentInterface():
                 env.reset()
     
             done = False
-            self.total_reward = 0
+            self.total_reward = 0.0
     
             for t in range(10000):
                 action = int(self.algorithm.get_action(obv))
@@ -162,8 +189,27 @@ class AgentInterface():
                     elif topic == f'/agents/{self.n}/reward': reward = float(payload)
                     elif topic == f'/agents/{self.n}/done' and self.sim: done = True if payload == "True" else False 
 
-                self.algorithm.reward_mem.append(reward)
-                self.algorithm.next_obv_mem.append(next_obv)
+                if self.alg_name == "dqn":
+                    self.algorithm.reward_mem.append(reward)
+                    self.algorithm.next_obv_mem.append(next_obv)
+                elif self.alg_name == "ddrqn":
+                    await self.train_flag.wait()
+
+                    loss = self.algorithm.train(obv, action, reward, next_obv) 
+                    agents[0].train_flag.clear()
+
+                    #each agent sends their updated weights to the next agent for the next update
+                    try:
+                        agents[self.n+1].algorithm.receive_comm(self.algorithm.send_comm())
+                        agents[self.n+1].train_flag.set()
+                    except:
+                        agents[0].algorithm.receive_comm(self.algorithm.send_comm())
+                        agents[0].train_flag.set()
+
+                    #agent 0 has the most up to date network and should update all other agents networks
+                    await agents[0].train_flag.wait()
+                
+                    self.algorithm.receive_comm(agents[0].algorithm.send_comm())
 
                 logging.debug("Agent %i next_obv = %s", self.n, next_obv)
                 logging.debug("Agent %i reward = %.4f", self.n, reward)
@@ -196,7 +242,7 @@ class AgentInterface():
                 
                     break
 
-                if np.size(self.algorithm.action_mem) > self.batch_size and t % 4 == 0:
+                if self.alg_name == "dqn" and (np.size(self.algorithm.action_mem) > self.batch_size and t % 4 == 0):
                     loss = self.algorithm.train() 
 
                     if t % 20 == 0:

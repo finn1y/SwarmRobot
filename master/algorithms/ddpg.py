@@ -7,6 +7,7 @@
 import numpy as np
 import tensorflow as tf
 import logging
+import time
 
 from algorithms.rl_algorithm import RLAlgorithm
 
@@ -14,7 +15,7 @@ from algorithms.rl_algorithm import RLAlgorithm
 # Functions
 #-----------------------------------------------------------------------------------------------
 
-def run_gym_ddpg_single_agent(env, render: bool=False, episodes: int=100, time_steps: int=10000):
+def run_gym_ddpg_single_agent(env, render: bool=False, episodes: int=100, time_steps: int=10000, hidden_size: int=256, gamma: float=0.99, lr: float=0.001, decay: float=0.9, lr_decay_steps: int=10000, mem_size: int=10000, batch_size: int=32, saved_path: str=None):
     """
         function to run ddpg algorithm on a gym env
 
@@ -28,21 +29,23 @@ def run_gym_ddpg_single_agent(env, render: bool=False, episodes: int=100, time_s
 
         time steps is the maximum number of time steps per episode
 
-        returns obvs, actions, rewards and losses of all agents
+        returns obvs, actions, rewards and losses of all agents and time of each epsiode in seconds
     """
-    batch_size = 32
-
     #get env variables
     n_actions = int(np.squeeze(env.action_space.shape)) #number of actions
     n_obvs = np.squeeze(env.observation_space.shape)
 
-    agent = DDPG(n_obvs, n_actions, env.action_space.high, env.action_space.low, batch_size=batch_size)
+    agent = DDPG(n_obvs, n_actions, env.action_space.high, env.action_space.low, hidden_size=hidden_size, gamma=gamma, lr=lr, decay=decay, lr_decay_steps=lr_decay_steps, mem_size=mem_size, batch_size=batch_size, saved_path=saved_path)
 
     #init arrays to collect data
+    all_times = []
     all_obvs = []
     all_actions = []
     all_rewards = []
     all_losses = []
+
+    #robot-maze env can save the path taken by the agents each episode
+    robot_paths = []
 
     #render env if enabled
     if render:
@@ -51,6 +54,7 @@ def run_gym_ddpg_single_agent(env, render: bool=False, episodes: int=100, time_s
     for e in range(episodes): 
         obv = env.reset()
 
+        start_time = time.time()
         ep_obvs = []
         ep_actions = []
         total_reward = 0
@@ -77,17 +81,29 @@ def run_gym_ddpg_single_agent(env, render: bool=False, episodes: int=100, time_s
             if done:
                 logging.info("Episode %u completed, after %u time steps, with total reward = %f", e, t, total_reward)
 
+                ep_time = round((time.time() - start_time), 3)
+                all_times.append(ep_time)
                 all_obvs.append(ep_obvs)
                 all_actions.append(ep_actions)
                 all_rewards.append(total_reward)
+
+                if env.unwrapped.spec.id[0:13] == "gym_robot_maze":
+                    robot_paths.append(info["robot_path"])
+
                 break
 
             elif t >= (time_steps - 1):
                 logging.info("Episode %u timed out, with total reward = %f", e, total_reward)
 
+                ep_time = round((time.time() - start_time), 3)
+                all_times.append(ep_time)
                 all_obvs.append(ep_obvs)
                 all_actions.append(ep_actions)
                 all_rewards.append(total_reward)
+
+                if env.unwrapped.spec.id[0:13] == "gym_robot_maze":
+                    robot_paths.append(info["robot_path"])
+
                 break
 
             if env.unwrapped.spec.id[0:5] == "maze-" and env.is_game_over():
@@ -100,7 +116,7 @@ def run_gym_ddpg_single_agent(env, render: bool=False, episodes: int=100, time_s
                 if t % 10 == 0:
                     agent.update_target_net()
 
-    return all_obvs, all_actions, all_rewards, all_losses
+    return all_obvs, all_actions, all_rewards, all_losses, robot_paths, all_times
 
 #-----------------------------------------------------------------------------------------------    
 # Classes
@@ -164,8 +180,8 @@ class DDPG(RLAlgorithm):
         self.critic_net = tf.keras.Model(inputs=[obv_input, action_input], outputs=critic)
 
         self.lr_decay_fn = tf.keras.optimizers.schedules.ExponentialDecay(self.lr, decay_steps=lr_decay_steps, decay_rate=self.decay)
-        self.actor_opt = tf.keras.optimizers.Adam(learning_rate=self.lr_decay_fn) #Adam optimiser is...
-        self.critic_opt = tf.keras.optimizers.Adam(learning_rate=self.lr_decay_fn) #Adam optimiser is...
+        self.actor_opt = tf.keras.optimizers.Adam(learning_rate=self.lr_decay_fn)
+        self.critic_opt = tf.keras.optimizers.Adam(learning_rate=self.lr_decay_fn)
 
         #init target nets
         self.actor_target = tf.keras.Model(inputs=actor_inputs, outputs=actor)
@@ -175,11 +191,11 @@ class DDPG(RLAlgorithm):
 
         #load a saved model (neural net) if provided
         if saved_path:
-            self.actor_net = tf.keras.models.load_model(f'{saved_path}/actor_net')#, custom_object={"CustomModel": ActorNet})
-            self.actor_target = tf.keras.models.load_model(f'{saved_path}/actor_net')#, custom_objects={"CustomModel": ActorNet})
+            self.actor_net = tf.keras.models.load_model(f'{saved_path}/actor_net')
+            self.actor_target = tf.keras.models.load_model(f'{saved_path}/actor_net')
 
-            self.critic_net = tf.keras.models.load_model(f'{saved_path}/critic_net')#, custom_object={"CustomModel": CriticNet})
-            self.critic_target = tf.keras.models.load_model(f'{saved_path}/critic_net')#, custom_objects={"CustomModel": CriticNet})
+            self.critic_net = tf.keras.models.load_model(f'{saved_path}/critic_net')
+            self.critic_target = tf.keras.models.load_model(f'{saved_path}/critic_net')
     
     #-------------------------------------------------------------------------------------------
     # Properties
@@ -336,7 +352,5 @@ class OrnsteinUhlenbeckNoise():
             self.x_prev = self.x_initial
         else:
             self.x_prev = np.zeros_like(self.mean)
-
-
 
 
