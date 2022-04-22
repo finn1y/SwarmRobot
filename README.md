@@ -21,7 +21,7 @@ pip install -r requirements.txt
 
 1. Run master on this machine
 ```
-./master/master.py
+./master/master.py --simulation
 ```
 2. Run agent in a separate terminal (or in parallel with master) via env wrapper
 ```
