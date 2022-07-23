@@ -275,7 +275,7 @@ async def main():
 
 if __name__ == "__main__":
     #init logging
-    logging.basicConfig(format="%(asctime)s.%(msecs)03d: %(levelname)s: %(message)s", datefmt='%Y-%m-%d %H:%M:%S', level=logging.INFO)
+    logging.basicConfig(format="%(asctime)s.%(msecs)03d: [%(levelname)s] %(message)s", datefmt='%Y-%m-%d %H:%M:%S', level=logging.INFO)
 
     if not hasattr(logging, "VDEBUG") and not hasattr(logging, "vdebug") and not hasattr(logging.getLoggerClass(), "vdebug"):
         #add new logging level "vdebug" to logger if not already added
